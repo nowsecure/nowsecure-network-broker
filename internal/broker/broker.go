@@ -13,12 +13,12 @@ import (
 	"os"
 	"os/signal"
 	"strconv"
+	"strings"
 	"syscall"
 	"time"
 
 	"github.com/nowsecure/nowsecure-network-broker/internal/config"
 	"github.com/nowsecure/nowsecure-network-broker/internal/wireguard"
-	wgipc "github.com/nowsecure/nowsecure-network-broker/pkg/wireguard"
 	"github.com/rs/zerolog"
 	"golang.org/x/crypto/curve25519"
 )
@@ -30,8 +30,7 @@ type Broker struct {
 }
 
 type registrationRequest struct {
-	Peer  wgipc.PeerConfig `json:"peer"`
-	Proxy proxyConfig      `json:"proxy"`
+	Proxy proxyConfig `json:"proxy"`
 }
 
 type proxyConfig struct {
@@ -40,11 +39,11 @@ type proxyConfig struct {
 }
 
 type registrationResponse struct {
-	Message       string `json:"message"`
-	IP            string `json:"ip"`
-	BrokerIP      string `json:"brokerIP"`
-	WireguardPort int    `json:"wireguardPort"`
-	AllowedCIDR   string `json:"allowedCIDR"`
+	Message     string `json:"message"`
+	IP          string `json:"ip"`
+	BrokerIP    string `json:"brokerIP"`
+	HubPort     int    `json:"hubPort"`
+	AllowedCIDR string `json:"allowedCIDR"`
 }
 
 func New(ctx context.Context, cfg *config.Config) *Broker {
@@ -57,19 +56,23 @@ func New(ctx context.Context, cfg *config.Config) *Broker {
 	}
 
 	log.Info().
-		Int("wireguard_port", resp.WireguardPort).
+		Int("wireguard_port", resp.HubPort).
 		Msg("registered with hub")
 
-	// url is validate from registerWithHub request
+	// url is validated from registerWithHub request
 	hubURL, _ := url.Parse(cfg.HubURL)
+	// resp.IP is "10.0.0.2/32", remove the /32
+	localAddr, _, _ := strings.Cut(resp.IP, "/")
+
 	return &Broker{
 		ctx: ctx,
 		log: log,
-		wg: wireguard.New(log, cfg.Wireguard, wireguard.HubInfo{
+		wg: wireguard.New(log, cfg.Wireguard, wireguard.RegistrationInfo{
 			PublicKey: cfg.Wireguard.HubPublicKey,
 			Host:      hubURL.Hostname(),
-			Port:      resp.WireguardPort,
+			Port:      resp.HubPort,
 			AllowedIP: resp.AllowedCIDR,
+			LocalAddr: localAddr,
 		}),
 	}
 }
@@ -85,13 +88,8 @@ func registerWithHub(ctx context.Context, cfg *config.Config) (*registrationResp
 	}
 
 	reqBody := registrationRequest{
-		Peer: wgipc.PeerConfig{
-			// this will almost always be the default
-			AllowedIP: cfg.Wireguard.LocalAddr + "/32",
-		},
 		Proxy: proxyConfig{
-			Domains:     cfg.Proxy.Domains,
-			AllowedURLs: cfg.Proxy.AllowedURLs,
+			Domains: cfg.Proxy.Domains,
 		},
 	}
 
