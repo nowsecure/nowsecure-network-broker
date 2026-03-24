@@ -23,7 +23,6 @@ type Config struct {
 // TunnelConfig holds the local wireguard tunnel parameters for the broker.
 type TunnelConfig struct {
 	PrivateKey        string        `koanf:"privateKey" yaml:"privateKey"`
-	LocalAddr         string        `koanf:"localAddr" yaml:"localAddr"`
 	MTU               int           `koanf:"mtu" yaml:"mtu"`
 	HubPublicKey      string        `koanf:"hubPublicKey" yaml:"hubPublicKey"`
 	HeartbeatInterval time.Duration `koanf:"heartbeatInterval" yaml:"heartbeatInterval"`
@@ -34,9 +33,6 @@ type ProxyConfig struct {
 	// Domains to be routed too. Typically a top level
 	// such as acme.local would resolve for app.acme.local
 	Domains []string `koanf:"domains"`
-	// AllowedURLs that the broker is allowed to proxy for,
-	// if no values are provided all urls are valid
-	AllowedURLs []string `koanf:"allowedURLs"`
 }
 
 type LogConfig struct {
@@ -51,8 +47,7 @@ var (
 			Pretty: false,
 		},
 		Wireguard: TunnelConfig{
-			LocalAddr: "10.0.0.2",
-			MTU:       1420,
+			MTU: 1420,
 		},
 	}
 )
