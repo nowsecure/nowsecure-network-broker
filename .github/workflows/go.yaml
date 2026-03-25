@@ -1,0 +1,63 @@
+---
+# This workflow will build a golang project
+# For more information see: https://docs.github.com/en/actions/automating-builds-and-tests/building-and-testing-go
+
+name: Go
+
+on:
+  pull_request:
+  push:
+    branches: ["main"]
+permissions:
+  contents: read
+  actions: read
+  checks: write
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Set up Go
+        uses: actions/setup-go@v6
+        with:
+          go-version-file: "./go.mod"
+
+      - name: Build
+        run: go build ./...
+
+      - name: Test
+        run: go test -json ./... > test-results.json
+
+      - name: Test Report
+        uses: dorny/test-reporter@v2
+        if: ${{ !cancelled() }}
+        with:
+          name: Go Test
+          path: test-results.json
+          reporter: golang-json
+
+  golangci-lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: "./go.mod"
+
+      - name: golangci-lint
+        uses: golangci/golangci-lint-action@v9
+        with:
+          version: v2.7
+
+  govulncheck:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: "./go.mod"
+
+      - run: make dependencies-analyze

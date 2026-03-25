@@ -1,7 +1,6 @@
 package logger
 
 import (
-	"fmt"
 	"io"
 	"os"
 	"time"
@@ -33,12 +32,15 @@ func NewLogger(pretty bool, logLevel zerolog.Level) *zerolog.Logger {
 	return &logger
 }
 
+type ContextKey string
+
+const SpanIDKey ContextKey = "span-id"
+
 type TracingHook struct{}
 
 func (h TracingHook) Run(e *zerolog.Event, level zerolog.Level, msg string) {
 	ctx := e.GetCtx()
-	fmt.Println(ctx)
-	if spanID, ok := ctx.Value("span-id").(string); ok && spanID != "" {
+	if spanID, ok := ctx.Value(SpanIDKey).(string); ok && spanID != "" {
 		e.Str("span-id", spanID)
 	}
 }

@@ -1,6 +1,6 @@
 module github.com/nowsecure/nowsecure-network-broker
 
-go 1.25.7
+go 1.25.8
 
 require (
 	github.com/knadh/koanf/parsers/yaml v1.1.0

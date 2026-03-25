@@ -8,12 +8,13 @@ import (
 	"sync"
 	"time"
 
-	"github.com/nowsecure/nowsecure-network-broker/internal/config"
-	wgipc "github.com/nowsecure/nowsecure-network-broker/pkg/wireguard"
 	"github.com/rs/zerolog"
 	"golang.zx2c4.com/wireguard/conn"
 	"golang.zx2c4.com/wireguard/device"
 	"golang.zx2c4.com/wireguard/tun/netstack"
+
+	"github.com/nowsecure/nowsecure-network-broker/internal/config"
+	wgipc "github.com/nowsecure/nowsecure-network-broker/pkg/wireguard"
 )
 
 const (
