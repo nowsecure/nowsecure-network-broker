@@ -1,0 +1,44 @@
+package logger
+
+import (
+	"fmt"
+	"io"
+	"os"
+	"time"
+
+	"github.com/rs/zerolog"
+	"github.com/rs/zerolog/pkgerrors"
+)
+
+func init() {
+	zerolog.ErrorFieldName = "err"
+	zerolog.DurationFieldUnit = time.Nanosecond
+	zerolog.ErrorStackMarshaler = pkgerrors.MarshalStack
+	zerolog.DefaultContextLogger = NewLogger(false, zerolog.InfoLevel)
+}
+
+func NewLogger(pretty bool, logLevel zerolog.Level) *zerolog.Logger {
+	var output io.Writer = os.Stderr
+	if pretty {
+		output = zerolog.ConsoleWriter{Out: os.Stderr}
+	}
+
+	logger := zerolog.New(output).
+		With().
+		Timestamp().
+		Logger().
+		Level(logLevel).
+		Hook(TracingHook{})
+
+	return &logger
+}
+
+type TracingHook struct{}
+
+func (h TracingHook) Run(e *zerolog.Event, level zerolog.Level, msg string) {
+	ctx := e.GetCtx()
+	fmt.Println(ctx)
+	if spanID, ok := ctx.Value("span-id").(string); ok && spanID != "" {
+		e.Str("span-id", spanID)
+	}
+}
