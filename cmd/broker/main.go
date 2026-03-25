@@ -5,12 +5,13 @@ import (
 	"fmt"
 
 	"github.com/knadh/koanf/v2"
-	"github.com/nowsecure/nowsecure-network-broker/internal/broker"
-	"github.com/nowsecure/nowsecure-network-broker/internal/config"
-	"github.com/nowsecure/nowsecure-network-broker/logger"
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
 	"github.com/spf13/cobra"
+
+	"github.com/nowsecure/nowsecure-network-broker/internal/broker"
+	"github.com/nowsecure/nowsecure-network-broker/internal/config"
+	"github.com/nowsecure/nowsecure-network-broker/logger"
 )
 
 func main() {
@@ -64,7 +65,7 @@ func NewStartCmd(cfg *config.Config) *cobra.Command {
 	}
 }
 
-func buildBrokerOptions(cfg *config.Config) (opts []broker.BrokerOption) {
+func buildBrokerOptions(cfg *config.Config) (opts []broker.Option) {
 	if cfg.Server.Probes {
 		opts = append(opts, broker.WithProbes())
 	}

@@ -17,10 +17,12 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/nowsecure/nowsecure-network-broker/internal/config"
-	"github.com/nowsecure/nowsecure-network-broker/internal/wireguard"
 	"github.com/rs/zerolog"
 	"golang.org/x/crypto/curve25519"
+
+	"github.com/nowsecure/nowsecure-network-broker/internal/config"
+	"github.com/nowsecure/nowsecure-network-broker/internal/wireguard"
+	"github.com/nowsecure/nowsecure-network-broker/logger"
 )
 
 type Broker struct {
@@ -50,9 +52,9 @@ type registrationResponse struct {
 	AllowedCIDR string `json:"allowedCIDR"`
 }
 
-type BrokerOption = func(b *Broker)
+type Option = func(b *Broker)
 
-func New(ctx context.Context, cfg *config.Config, o ...BrokerOption) *Broker {
+func New(ctx context.Context, cfg *config.Config, o ...Option) *Broker {
 	log := zerolog.Ctx(ctx)
 
 	log.Info().Msgf("registering proxy config with hub: %s", cfg.HubURL)
@@ -88,7 +90,7 @@ func New(ctx context.Context, cfg *config.Config, o ...BrokerOption) *Broker {
 	return b
 }
 
-func WithProbes() BrokerOption {
+func WithProbes() Option {
 	return func(b *Broker) {
 		if b.mux == nil {
 			b.mux = http.NewServeMux()
@@ -98,16 +100,14 @@ func WithProbes() BrokerOption {
 				http.Error(w, "wireguard tunnel is not running", http.StatusServiceUnavailable)
 				return
 			}
-			w.WriteHeader(http.StatusOK)
-			fmt.Fprint(w, "ok")
+			_, _ = w.Write([]byte("ok"))
 		})
 		b.mux.HandleFunc("GET /readyz", func(w http.ResponseWriter, r *http.Request) {
 			if b.wg == nil || !b.wg.HubConnected() {
 				http.Error(w, "not ready, hub not connected", http.StatusServiceUnavailable)
 				return
 			}
-			w.WriteHeader(http.StatusOK)
-			fmt.Fprint(w, "ok")
+			_, _ = w.Write([]byte("ok"))
 		})
 	}
 }
@@ -147,8 +147,12 @@ func (b *Broker) Start() error {
 
 func (b *Broker) serve() error {
 	b.http = &http.Server{
-		Addr:    fmt.Sprintf(":%d", b.cfg.Server.Port),
-		Handler: b.mux,
+		Addr:              fmt.Sprintf(":%d", b.cfg.Server.Port),
+		Handler:           b.mux,
+		ReadTimeout:       10 * time.Second,
+		ReadHeaderTimeout: 10 * time.Second,
+		WriteTimeout:      10 * time.Second,
+		IdleTimeout:       10 * time.Second,
 	}
 	b.log.Info().Str("addr", b.http.Addr).Msg("starting http server")
 	return b.http.ListenAndServe()
@@ -158,7 +162,7 @@ func (b *Broker) close() {
 	if b.http == nil {
 		return
 	}
-	b.http.Close()
+	_ = b.http.Close()
 }
 
 func registerWithHub(ctx context.Context, cfg *config.Config) (*registrationResponse, error) {
@@ -207,11 +211,11 @@ func registerWithHub(ctx context.Context, cfg *config.Config) (*registrationResp
 	if err != nil {
 		return nil, fmt.Errorf("POST %s: %w", registerURL, err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	id := resp.Header.Get("X-Request-ID")
 	if id != "" {
-		ctx = context.WithValue(ctx, "span-id", id)
+		ctx = context.WithValue(ctx, logger.SpanIDKey, id)
 	}
 
 	if resp.StatusCode != http.StatusOK {

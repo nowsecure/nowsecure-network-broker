@@ -51,20 +51,18 @@ type LogConfig struct {
 	Pretty bool          `koanf:"pretty"`
 }
 
-var (
-	defaultConfig = Config{
-		Log: LogConfig{
-			Level:  zerolog.InfoLevel,
-			Pretty: false,
-		},
-		Wireguard: TunnelConfig{
-			MTU: 1420,
-		},
-		Server: ServerConfig{
-			Port: 8888,
-		},
-	}
-)
+var defaultConfig = Config{
+	Log: LogConfig{
+		Level:  zerolog.InfoLevel,
+		Pretty: false,
+	},
+	Wireguard: TunnelConfig{
+		MTU: 1420,
+	},
+	Server: ServerConfig{
+		Port: 8888,
+	},
+}
 
 func LoadConfig(ctx context.Context, k *koanf.Koanf, cfgFiles []string, cfg *Config) error {
 	if err := k.Load(structs.Provider(defaultConfig, "koanf"), nil); err != nil {

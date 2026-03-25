@@ -7,10 +7,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/nowsecure/nowsecure-network-broker/internal/config"
 	"github.com/rs/zerolog"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/nowsecure/nowsecure-network-broker/internal/config"
 )
 
 func testKeyPair(t *testing.T) (privB64, pubB64 string) {
