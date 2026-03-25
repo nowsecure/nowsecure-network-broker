@@ -59,7 +59,14 @@ func NewStartCmd(cfg *config.Config) *cobra.Command {
 		RunE: func(cmd *cobra.Command, args []string) error {
 			ctx := cmd.Context()
 			zerolog.Ctx(ctx).Info().Msg("starting broker")
-			return broker.New(ctx, cfg).Start()
+			return broker.New(ctx, cfg, buildBrokerOptions(cfg)...).Start()
 		},
 	}
+}
+
+func buildBrokerOptions(cfg *config.Config) (opts []broker.BrokerOption) {
+	if cfg.Server.Probes {
+		opts = append(opts, broker.WithProbes())
+	}
+	return opts
 }

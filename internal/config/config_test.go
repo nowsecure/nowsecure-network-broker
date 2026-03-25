@@ -85,7 +85,7 @@ func TestLoadConfig(t *testing.T) {
 
 		tmpDir := t.TempDir()
 		cfgFile := filepath.Join(tmpDir, "config.yaml")
-		require.NoError(t, os.WriteFile(cfgFile, []byte(yamlContent), 0644))
+		require.NoError(t, os.WriteFile(cfgFile, []byte(yamlContent), 0400))
 
 		cfg := &Config{}
 		err := LoadConfig(t.Context(), koanf.New("."), []string{cfgFile}, cfg)
@@ -101,7 +101,7 @@ func TestLoadConfig(t *testing.T) {
 
 		tmpDir := t.TempDir()
 		cfgFile := filepath.Join(tmpDir, "config.yaml")
-		require.NoError(t, os.WriteFile(cfgFile, []byte(yamlContent), 0644))
+		require.NoError(t, os.WriteFile(cfgFile, []byte(yamlContent), 0400))
 
 		cfg := &Config{}
 		err := LoadConfig(t.Context(), koanf.New("."), []string{cfgFile}, cfg)
@@ -122,7 +122,7 @@ func TestLoadConfig(t *testing.T) {
 
 		tmpDir := t.TempDir()
 		cfgFile := filepath.Join(tmpDir, "config.yaml")
-		require.NoError(t, os.WriteFile(cfgFile, []byte(yamlContent), 0644))
+		require.NoError(t, os.WriteFile(cfgFile, []byte(yamlContent), 0400))
 
 		cfg := &Config{}
 		err := LoadConfig(t.Context(), koanf.New("."), []string{cfgFile}, cfg)
