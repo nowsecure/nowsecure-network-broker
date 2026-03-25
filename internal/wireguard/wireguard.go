@@ -24,14 +24,15 @@ const (
 	maxDisconnectRetries     = 20
 )
 
-// HubInfo holds the connection details for the hub, populated from
-// config (HubPublicKey) and the registration response (Host, Port, AllowedIP).
-// Host can be a hostname or IP — it is resolved to an IP for the WireGuard endpoint.
-type HubInfo struct {
+// RegistrationInfo holds config that isn't available until registration time.
+type RegistrationInfo struct {
 	PublicKey string
 	Host      string
 	Port      int
+	// the allowed IPs typically gonna be 10.0.0.0/24
 	AllowedIP string
+	// this clients address
+	LocalAddr string
 }
 
 // Wireguard manages the broker's WireGuard tunnel to the hub.
@@ -46,20 +47,20 @@ type Wireguard struct {
 	// maxDisconnectRetries consecutive heartbeat checks.
 	Dead chan struct{}
 
-	cfg config.TunnelConfig
-	hub HubInfo
-	log *zerolog.Logger
+	cfg   config.TunnelConfig
+	input RegistrationInfo
+	log   *zerolog.Logger
 }
 
-func New(log *zerolog.Logger, cfg config.TunnelConfig, hub HubInfo) *Wireguard {
+func New(log *zerolog.Logger, cfg config.TunnelConfig, input RegistrationInfo) *Wireguard {
 	if cfg.HeartbeatInterval == 0 {
 		cfg.HeartbeatInterval = defaultHeartbeatInterval
 	}
 	return &Wireguard{
-		log:  log,
-		cfg:  cfg,
-		hub:  hub,
-		Dead: make(chan struct{}),
+		log:   log,
+		cfg:   cfg,
+		input: input,
+		Dead:  make(chan struct{}),
 	}
 }
 
@@ -68,7 +69,7 @@ func (w *Wireguard) Start() (*netstack.Net, error) {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 
-	localAddr, err := netip.ParseAddr(w.cfg.LocalAddr)
+	localAddr, err := netip.ParseAddr(w.input.LocalAddr)
 	if err != nil {
 		return nil, fmt.Errorf("parse local address: %w", err)
 	}
@@ -108,9 +109,9 @@ func (w *Wireguard) Start() (*netstack.Net, error) {
 	go w.runHeartbeat()
 
 	w.log.Info().
-		Str("local_addr", w.cfg.LocalAddr).
-		Str("hub_host", w.hub.Host).
-		Int("hub_port", w.hub.Port).
+		Str("local_addr", w.input.LocalAddr).
+		Str("hub_host", w.input.Host).
+		Int("hub_port", w.input.Port).
 		Msg("wireguard tunnel started")
 
 	return tnet, nil
@@ -123,9 +124,9 @@ func (w *Wireguard) stop() {
 	}
 }
 
-// resolveEndpoint resolves hub.Host to an IP
+// resolveEndpoint resolves input.Host to an IP
 func (w *Wireguard) resolveEndpoint() (string, error) {
-	host := w.hub.Host
+	host := w.input.Host
 	ips, err := net.DefaultResolver.LookupHost(context.Background(), host)
 	if err != nil {
 		return "", fmt.Errorf("resolve hub host %q: %w", host, err)
@@ -133,7 +134,7 @@ func (w *Wireguard) resolveEndpoint() (string, error) {
 	if len(ips) == 0 {
 		return "", fmt.Errorf("resolve hub host %q: no addresses found", host)
 	}
-	return fmt.Sprintf("%s:%d", ips[0], w.hub.Port), nil
+	return fmt.Sprintf("%s:%d", ips[0], w.input.Port), nil
 }
 
 // setHubPeer configures hubPeer caller must lock
@@ -145,8 +146,8 @@ func (w *Wireguard) setHubPeer() error {
 
 	hubPeer := wgipc.PeerConfig{
 		Name:      "hub",
-		PublicKey: w.hub.PublicKey,
-		AllowedIP: w.hub.AllowedIP,
+		PublicKey: w.input.PublicKey,
+		AllowedIP: w.input.AllowedIP,
 	}
 	peerIPC, err := wgipc.PeerWithEndpointIPC(hubPeer, endpoint, defaultKeepalive)
 	if err != nil {
@@ -186,7 +187,7 @@ func (w *Wireguard) checkHubHealth() {
 		return
 	}
 
-	hubKeyHex, err := wgipc.PubKeyToHex(w.hub.PublicKey)
+	hubKeyHex, err := wgipc.PubKeyToHex(w.input.PublicKey)
 	if err != nil {
 		w.log.Error().Err(err).Msg("invalid hub public key")
 		return

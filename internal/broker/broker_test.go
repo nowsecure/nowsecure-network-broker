@@ -15,7 +15,6 @@ import (
 	"time"
 
 	"github.com/nowsecure/nowsecure-network-broker/internal/config"
-	wgipc "github.com/nowsecure/nowsecure-network-broker/pkg/wireguard"
 	"github.com/rs/zerolog"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -63,16 +62,15 @@ func TestRegisterWithHub(t *testing.T) {
 			// Verify request body
 			var req registrationRequest
 			require.NoError(t, json.Unmarshal(body, &req))
-			assert.Equal(t, "10.0.0.2/32", req.Peer.AllowedIP)
 			assert.Equal(t, []string{"example.com"}, req.Proxy.Domains)
 
 			w.Header().Set("Content-Type", "application/json")
 			w.Header().Set("X-Request-ID", "req-abc-123")
 			json.NewEncoder(w).Encode(registrationResponse{
-				Message:       "broker successfully registered",
-				BrokerIP:      "10.0.0.2/32",
-				WireguardPort: 51820,
-				AllowedCIDR:   "10.0.0.0/24",
+				Message:     "broker successfully registered",
+				BrokerIP:    "10.0.0.2/32",
+				HubPort:     51820,
+				AllowedCIDR: "10.0.0.0/24",
 			})
 		}))
 		defer srv.Close()
@@ -81,7 +79,6 @@ func TestRegisterWithHub(t *testing.T) {
 			Wireguard: config.TunnelConfig{
 				PrivateKey:   brokerPriv,
 				HubPublicKey: hubPub,
-				LocalAddr:    "10.0.0.2",
 			},
 			HubURL: srv.URL,
 			Proxy:  config.ProxyConfig{Domains: []string{"example.com"}},
@@ -89,7 +86,7 @@ func TestRegisterWithHub(t *testing.T) {
 
 		resp, err := registerWithHub(t.Context(), cfg)
 		require.NoError(t, err)
-		assert.Equal(t, 51820, resp.WireguardPort)
+		assert.Equal(t, 51820, resp.HubPort)
 		assert.Equal(t, "10.0.0.0/24", resp.AllowedCIDR)
 		assert.Equal(t, "broker successfully registered", resp.Message)
 	})
@@ -104,7 +101,6 @@ func TestRegisterWithHub(t *testing.T) {
 			Wireguard: config.TunnelConfig{
 				PrivateKey:   brokerPriv,
 				HubPublicKey: hubPub,
-				LocalAddr:    "10.0.0.2",
 			},
 			HubURL: srv.URL,
 		}
@@ -119,7 +115,6 @@ func TestRegisterWithHub(t *testing.T) {
 			Wireguard: config.TunnelConfig{
 				PrivateKey:   brokerPriv,
 				HubPublicKey: hubPub,
-				LocalAddr:    "10.0.0.2",
 			},
 			HubURL: "http://127.0.0.1:1",
 		}
@@ -133,7 +128,6 @@ func TestRegisterWithHub(t *testing.T) {
 			Wireguard: config.TunnelConfig{
 				PrivateKey:   "not-valid-base64!!!",
 				HubPublicKey: hubPub,
-				LocalAddr:    "10.0.0.2",
 			},
 			HubURL: "http://localhost",
 		}
@@ -149,7 +143,7 @@ func TestRegisterWithHub(t *testing.T) {
 			ts, _ := strconv.ParseInt(r.Header.Get("X-Timestamp"), 10, 64)
 			capturedTimestamp = ts
 			w.Header().Set("Content-Type", "application/json")
-			json.NewEncoder(w).Encode(registrationResponse{WireguardPort: 51820, AllowedCIDR: "10.0.0.0/24"})
+			json.NewEncoder(w).Encode(registrationResponse{HubPort: 51820, AllowedCIDR: "10.0.0.0/24"})
 		}))
 		defer srv.Close()
 
@@ -157,7 +151,6 @@ func TestRegisterWithHub(t *testing.T) {
 			Wireguard: config.TunnelConfig{
 				PrivateKey:   brokerPriv,
 				HubPublicKey: hubPub,
-				LocalAddr:    "10.0.0.2",
 			},
 			HubURL: srv.URL,
 		}
@@ -175,10 +168,10 @@ func TestNew(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(registrationResponse{
-			Message:       "broker successfully registered",
-			BrokerIP:      "10.0.0.2/32",
-			WireguardPort: 51820,
-			AllowedCIDR:   "10.0.0.0/24",
+			Message:     "broker successfully registered",
+			BrokerIP:    "10.0.0.2/32",
+			HubPort:     51820,
+			AllowedCIDR: "10.0.0.0/24",
 		})
 	}))
 	defer srv.Close()
@@ -187,7 +180,6 @@ func TestNew(t *testing.T) {
 		Wireguard: config.TunnelConfig{
 			PrivateKey:   brokerPriv,
 			HubPublicKey: hubPub,
-			LocalAddr:    "10.0.0.2",
 		},
 		HubURL: srv.URL,
 		Proxy:  config.ProxyConfig{Domains: []string{"example.com"}},
@@ -211,8 +203,8 @@ func TestNew_RegistrationRequestBody(t *testing.T) {
 		json.Unmarshal(body, &capturedReq)
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(registrationResponse{
-			WireguardPort: 51820,
-			AllowedCIDR:   "10.0.0.0/24",
+			HubPort:     51820,
+			AllowedCIDR: "10.0.0.0/24",
 		})
 	}))
 	defer srv.Close()
@@ -221,12 +213,10 @@ func TestNew_RegistrationRequestBody(t *testing.T) {
 		Wireguard: config.TunnelConfig{
 			PrivateKey:   brokerPriv,
 			HubPublicKey: hubPub,
-			LocalAddr:    "10.0.0.2",
 		},
 		HubURL: srv.URL,
 		Proxy: config.ProxyConfig{
-			Domains:     []string{"api.example.com"},
-			AllowedURLs: []string{"/v1/.*"},
+			Domains: []string{"api.example.com"},
 		},
 	}
 
@@ -234,7 +224,6 @@ func TestNew_RegistrationRequestBody(t *testing.T) {
 	ctx := logger.WithContext(t.Context())
 	_ = New(ctx, cfg)
 
-	assert.Equal(t, wgipc.PeerConfig{AllowedIP: "10.0.0.2/32"}, capturedReq.Peer)
 	assert.Equal(t, []string{"api.example.com"}, capturedReq.Proxy.Domains)
 	assert.Equal(t, []string{"/v1/.*"}, capturedReq.Proxy.AllowedURLs)
 }

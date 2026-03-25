@@ -26,7 +26,6 @@ func validConfig(t *testing.T) *Config {
 		Wireguard: TunnelConfig{
 			PrivateKey:   validPrivateKey(t),
 			HubPublicKey: "aHViLXB1YmxpYy1rZXktdGhhdC1pcy0zMi1ieXRlcw==",
-			LocalAddr:    "10.0.0.2",
 		},
 		HubURL: "https://hub.example.com",
 	}
@@ -92,14 +91,13 @@ func TestLoadConfig(t *testing.T) {
 		err := LoadConfig(t.Context(), koanf.New("."), []string{cfgFile}, cfg)
 		require.NoError(t, err)
 
-		assert.Equal(t, "10.0.0.2", cfg.Wireguard.LocalAddr)
 		assert.Equal(t, 1420, cfg.Wireguard.MTU)
 		assert.Equal(t, privKey, cfg.Wireguard.PrivateKey)
 	})
 
 	t.Run("file overrides defaults", func(t *testing.T) {
 		privKey := validPrivateKey(t)
-		yamlContent := "wireguard:\n  privateKey: " + privKey + "\n  hubPublicKey: some-key\n  localAddr: 10.0.1.5\n  mtu: 1300\nhubURL: https://hub.example.com\n"
+		yamlContent := "wireguard:\n  privateKey: " + privKey + "\n  hubPublicKey: some-key\n  mtu: 1300\nhubURL: https://hub.example.com\n"
 
 		tmpDir := t.TempDir()
 		cfgFile := filepath.Join(tmpDir, "config.yaml")
@@ -109,7 +107,6 @@ func TestLoadConfig(t *testing.T) {
 		err := LoadConfig(t.Context(), koanf.New("."), []string{cfgFile}, cfg)
 		require.NoError(t, err)
 
-		assert.Equal(t, "10.0.1.5", cfg.Wireguard.LocalAddr)
 		assert.Equal(t, 1300, cfg.Wireguard.MTU)
 	})
 
