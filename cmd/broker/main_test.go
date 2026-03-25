@@ -8,11 +8,12 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/nowsecure/nowsecure-network-broker/internal/broker"
-	"github.com/nowsecure/nowsecure-network-broker/internal/config"
 	"github.com/spf13/cobra"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/nowsecure/nowsecure-network-broker/internal/broker"
+	"github.com/nowsecure/nowsecure-network-broker/internal/config"
 )
 
 func validPrivateKey(t *testing.T) string {
@@ -48,7 +49,7 @@ func TestRoot_PersistentPreRunE_LoadsConfig(t *testing.T) {
 
 	tmpDir := t.TempDir()
 	cfgFile := filepath.Join(tmpDir, "config.yaml")
-	require.NoError(t, os.WriteFile(cfgFile, []byte(yamlContent), 0400))
+	require.NoError(t, os.WriteFile(cfgFile, []byte(yamlContent), 0o400))
 
 	c, cfg := root()
 	c.SetArgs([]string{"--config", cfgFile})
@@ -68,7 +69,7 @@ func TestRoot_PersistentPreRunE_LoadsConfig(t *testing.T) {
 func TestRoot_PersistentPreRunE_InvalidConfig(t *testing.T) {
 	tmpDir := t.TempDir()
 	cfgFile := filepath.Join(tmpDir, "config.yaml")
-	require.NoError(t, os.WriteFile(cfgFile, []byte("wireguard:\n  privateKey: bad\nhubURL: https://hub.example.com\n"), 0400))
+	require.NoError(t, os.WriteFile(cfgFile, []byte("wireguard:\n  privateKey: bad\nhubURL: https://hub.example.com\n"), 0o400))
 
 	c, _ := root()
 	c.AddCommand(noopCmd())
@@ -110,6 +111,6 @@ func TestBuildBrokerOptions(t *testing.T) {
 		require.Len(t, opts, 1)
 
 		// Verify the option is WithProbes by checking it sets up mux
-		assert.IsType(t, (broker.BrokerOption)(nil), opts[0])
+		assert.IsType(t, (broker.Option)(nil), opts[0])
 	})
 }

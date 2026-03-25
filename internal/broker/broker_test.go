@@ -16,12 +16,13 @@ import (
 	"testing"
 	"time"
 
-	"github.com/nowsecure/nowsecure-network-broker/internal/config"
-	"github.com/nowsecure/nowsecure-network-broker/internal/wireguard"
 	"github.com/rs/zerolog"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"golang.org/x/crypto/curve25519"
+
+	"github.com/nowsecure/nowsecure-network-broker/internal/config"
+	"github.com/nowsecure/nowsecure-network-broker/internal/wireguard"
 )
 
 func testKeys(t *testing.T) (privB64, pubB64 string) {
@@ -48,12 +49,12 @@ func TestRegisterWithHub(t *testing.T) {
 
 			ts := r.Header.Get("X-Timestamp")
 			auth := r.Header.Get("Authorization")
-			require.NotEmpty(t, ts, "missing X-Timestamp")
-			require.NotEmpty(t, auth, "missing Authorization")
+			require.NotEmpty(t, ts, "missing X-Timestamp")     //nolint:testifylint // require in handler is intentional
+			require.NotEmpty(t, auth, "missing Authorization") //nolint:testifylint // require in handler is intentional
 
 			// Verify HMAC from the hub's perspective
 			body, err := io.ReadAll(r.Body)
-			require.NoError(t, err)
+			require.NoError(t, err) //nolint:testifylint // require in handler is intentional
 
 			mac := hmac.New(sha256.New, sharedSecret)
 			mac.Write([]byte(ts))
@@ -64,12 +65,12 @@ func TestRegisterWithHub(t *testing.T) {
 
 			// Verify request body
 			var req registrationRequest
-			require.NoError(t, json.Unmarshal(body, &req))
+			require.NoError(t, json.Unmarshal(body, &req)) //nolint:testifylint // require in handler is intentional
 			assert.Equal(t, []string{"example.com"}, req.Proxy.Domains)
 
 			w.Header().Set("Content-Type", "application/json")
 			w.Header().Set("X-Request-ID", "req-abc-123")
-			json.NewEncoder(w).Encode(registrationResponse{
+			_ = json.NewEncoder(w).Encode(registrationResponse{
 				Message:     "broker successfully registered",
 				BrokerIP:    "10.0.0.2/32",
 				HubPort:     51820,
@@ -146,7 +147,7 @@ func TestRegisterWithHub(t *testing.T) {
 			ts, _ := strconv.ParseInt(r.Header.Get("X-Timestamp"), 10, 64)
 			capturedTimestamp = ts
 			w.Header().Set("Content-Type", "application/json")
-			json.NewEncoder(w).Encode(registrationResponse{HubPort: 51820, AllowedCIDR: "10.0.0.0/24"})
+			_ = json.NewEncoder(w).Encode(registrationResponse{HubPort: 51820, AllowedCIDR: "10.0.0.0/24"})
 		}))
 		defer srv.Close()
 
@@ -170,7 +171,7 @@ func TestNew(t *testing.T) {
 
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(registrationResponse{
+		_ = json.NewEncoder(w).Encode(registrationResponse{
 			Message:     "broker successfully registered",
 			BrokerIP:    "10.0.0.2/32",
 			HubPort:     51820,
@@ -203,9 +204,9 @@ func TestNew_RegistrationRequestBody(t *testing.T) {
 	var capturedReq registrationRequest
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		body, _ := io.ReadAll(r.Body)
-		json.Unmarshal(body, &capturedReq)
+		_ = json.Unmarshal(body, &capturedReq)
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(registrationResponse{
+		_ = json.NewEncoder(w).Encode(registrationResponse{
 			HubPort:     51820,
 			AllowedCIDR: "10.0.0.0/24",
 		})
@@ -278,7 +279,7 @@ func TestWithProbes_Readyz(t *testing.T) {
 	})
 }
 
-func newTestBroker(t *testing.T, opts ...BrokerOption) *Broker {
+func newTestBroker(t *testing.T, opts ...Option) *Broker {
 	t.Helper()
 	brokerPriv, _ := testKeys(t)
 	_, hubPub := testKeys(t)
@@ -319,11 +320,11 @@ func TestStart_SignalShutdown(t *testing.T) {
 	time.Sleep(100 * time.Millisecond)
 
 	// Send SIGTERM to trigger clean shutdown
-	syscall.Kill(syscall.Getpid(), syscall.SIGTERM)
+	_ = syscall.Kill(syscall.Getpid(), syscall.SIGTERM)
 
 	select {
 	case err := <-errCh:
-		assert.NoError(t, err)
+		require.NoError(t, err)
 	case <-time.After(5 * time.Second):
 		t.Fatal("Start did not return after SIGTERM")
 	}
@@ -364,15 +365,15 @@ func TestStart_WithProbes(t *testing.T) {
 		if err != nil {
 			return false
 		}
-		resp.Body.Close()
+		_ = resp.Body.Close()
 		return resp.StatusCode == http.StatusOK
 	}, 5*time.Second, 50*time.Millisecond, "healthz probe never became reachable")
 
-	syscall.Kill(syscall.Getpid(), syscall.SIGTERM)
+	_ = syscall.Kill(syscall.Getpid(), syscall.SIGTERM)
 
 	select {
 	case err := <-errCh:
-		assert.NoError(t, err)
+		require.NoError(t, err)
 	case <-time.After(5 * time.Second):
 		t.Fatal("Start did not return after SIGTERM")
 	}
