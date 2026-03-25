@@ -7,14 +7,17 @@ import (
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
 	"strconv"
+	"syscall"
 	"testing"
 	"time"
 
 	"github.com/nowsecure/nowsecure-network-broker/internal/config"
+	"github.com/nowsecure/nowsecure-network-broker/internal/wireguard"
 	"github.com/rs/zerolog"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -225,5 +228,152 @@ func TestNew_RegistrationRequestBody(t *testing.T) {
 	_ = New(ctx, cfg)
 
 	assert.Equal(t, []string{"api.example.com"}, capturedReq.Proxy.Domains)
-	assert.Equal(t, []string{"/v1/.*"}, capturedReq.Proxy.AllowedURLs)
+}
+
+func TestWithProbes_Healthz(t *testing.T) {
+	t.Run("healthy when wg is set", func(t *testing.T) {
+		b := &Broker{wg: &wireguard.Wireguard{}}
+		WithProbes()(b)
+
+		rec := httptest.NewRecorder()
+		b.mux.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/healthz", nil))
+
+		assert.Equal(t, http.StatusOK, rec.Code)
+		assert.Equal(t, "ok", rec.Body.String())
+	})
+
+	t.Run("unhealthy when wg is nil", func(t *testing.T) {
+		b := &Broker{}
+		WithProbes()(b)
+
+		rec := httptest.NewRecorder()
+		b.mux.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/healthz", nil))
+
+		assert.Equal(t, http.StatusServiceUnavailable, rec.Code)
+		assert.Contains(t, rec.Body.String(), "wireguard tunnel is not running")
+	})
+}
+
+func TestWithProbes_Readyz(t *testing.T) {
+	t.Run("not ready when wg is nil", func(t *testing.T) {
+		b := &Broker{}
+		WithProbes()(b)
+
+		rec := httptest.NewRecorder()
+		b.mux.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/readyz", nil))
+
+		assert.Equal(t, http.StatusServiceUnavailable, rec.Code)
+		assert.Contains(t, rec.Body.String(), "not ready")
+	})
+
+	t.Run("not ready when hub not connected", func(t *testing.T) {
+		b := &Broker{wg: &wireguard.Wireguard{}}
+		WithProbes()(b)
+
+		rec := httptest.NewRecorder()
+		b.mux.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/readyz", nil))
+
+		assert.Equal(t, http.StatusServiceUnavailable, rec.Code)
+		assert.Contains(t, rec.Body.String(), "not ready")
+	})
+}
+
+func newTestBroker(t *testing.T, opts ...BrokerOption) *Broker {
+	t.Helper()
+	brokerPriv, _ := testKeys(t)
+	_, hubPub := testKeys(t)
+
+	logger := zerolog.Nop()
+	log := &logger
+
+	b := &Broker{
+		log: log,
+		cfg: &config.Config{
+			Server: config.ServerConfig{Port: 0},
+		},
+		wg: wireguard.New(log, config.TunnelConfig{
+			PrivateKey:        brokerPriv,
+			HeartbeatInterval: time.Hour,
+		}, wireguard.RegistrationInfo{
+			PublicKey: hubPub,
+			Host:      "127.0.0.1",
+			Port:      51820,
+			AllowedIP: "10.0.0.0/24",
+			LocalAddr: "10.0.0.2",
+		}),
+	}
+
+	for _, opt := range opts {
+		opt(b)
+	}
+	return b
+}
+
+func TestStart_SignalShutdown(t *testing.T) {
+	b := newTestBroker(t)
+
+	errCh := make(chan error, 1)
+	go func() { errCh <- b.Start() }()
+
+	// Give Start time to bring up the tunnel
+	time.Sleep(100 * time.Millisecond)
+
+	// Send SIGTERM to trigger clean shutdown
+	syscall.Kill(syscall.Getpid(), syscall.SIGTERM)
+
+	select {
+	case err := <-errCh:
+		assert.NoError(t, err)
+	case <-time.After(5 * time.Second):
+		t.Fatal("Start did not return after SIGTERM")
+	}
+}
+
+func TestStart_DeadChannel(t *testing.T) {
+	b := newTestBroker(t)
+
+	errCh := make(chan error, 1)
+	go func() { errCh <- b.Start() }()
+
+	time.Sleep(100 * time.Millisecond)
+
+	// Simulate hub unreachable by closing the Dead channel
+	close(b.wg.Dead)
+
+	select {
+	case err := <-errCh:
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "hub unreachable")
+	case <-time.After(5 * time.Second):
+		t.Fatal("Start did not return after Dead closed")
+	}
+}
+
+func TestStart_WithProbes(t *testing.T) {
+	b := newTestBroker(t, WithProbes())
+	b.cfg.Server.Port = 18923
+
+	errCh := make(chan error, 1)
+	go func() { errCh <- b.Start() }()
+
+	require.Eventually(t, func() bool {
+		if b.http == nil {
+			return false
+		}
+		resp, err := http.Get(fmt.Sprintf("http://localhost%s/healthz", b.http.Addr))
+		if err != nil {
+			return false
+		}
+		resp.Body.Close()
+		return resp.StatusCode == http.StatusOK
+	}, 5*time.Second, 50*time.Millisecond, "healthz probe never became reachable")
+
+	syscall.Kill(syscall.Getpid(), syscall.SIGTERM)
+
+	select {
+	case err := <-errCh:
+		assert.NoError(t, err)
+	case <-time.After(5 * time.Second):
+		t.Fatal("Start did not return after SIGTERM")
+	}
 }

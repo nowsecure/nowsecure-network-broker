@@ -18,6 +18,17 @@ type Config struct {
 	Wireguard TunnelConfig `koanf:"wireguard"`
 	HubURL    string       `koanf:"hubURL"`
 	Proxy     ProxyConfig  `koanf:"proxy"`
+	Server    ServerConfig `koanf:"server"`
+}
+
+// ServerConfig holds configuration on whether to start an
+// http server. Holds configuration such as adding health probes.
+// If all options are false no server is started
+type ServerConfig struct {
+	// Probes adds the health probes of /healthz and /readyz
+	// to the server useful in containerized envs
+	Probes bool `koanf:"probes"`
+	Port   int  `koanf:"port"`
 }
 
 // TunnelConfig holds the local wireguard tunnel parameters for the broker.
@@ -48,6 +59,9 @@ var (
 		},
 		Wireguard: TunnelConfig{
 			MTU: 1420,
+		},
+		Server: ServerConfig{
+			Port: 8888,
 		},
 	}
 )

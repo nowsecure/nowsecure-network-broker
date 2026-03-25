@@ -27,6 +27,10 @@ type Broker struct {
 	ctx context.Context
 	log *zerolog.Logger
 	wg  *wireguard.Wireguard
+	cfg *config.Config
+
+	http *http.Server
+	mux  *http.ServeMux
 }
 
 type registrationRequest struct {
@@ -46,7 +50,9 @@ type registrationResponse struct {
 	AllowedCIDR string `json:"allowedCIDR"`
 }
 
-func New(ctx context.Context, cfg *config.Config) *Broker {
+type BrokerOption = func(b *Broker)
+
+func New(ctx context.Context, cfg *config.Config, o ...BrokerOption) *Broker {
 	log := zerolog.Ctx(ctx)
 
 	log.Info().Msgf("registering proxy config with hub: %s", cfg.HubURL)
@@ -54,7 +60,6 @@ func New(ctx context.Context, cfg *config.Config) *Broker {
 	if err != nil {
 		log.Fatal().Ctx(ctx).Err(err).Msg("failed to register with hub")
 	}
-
 	log.Info().
 		Int("wireguard_port", resp.HubPort).
 		Msg("registered with hub")
@@ -64,9 +69,10 @@ func New(ctx context.Context, cfg *config.Config) *Broker {
 	// resp.IP is "10.0.0.2/32", remove the /32
 	localAddr, _, _ := strings.Cut(resp.IP, "/")
 
-	return &Broker{
+	b := &Broker{
 		ctx: ctx,
 		log: log,
+		cfg: cfg,
 		wg: wireguard.New(log, cfg.Wireguard, wireguard.RegistrationInfo{
 			PublicKey: cfg.Wireguard.HubPublicKey,
 			Host:      hubURL.Hostname(),
@@ -75,6 +81,84 @@ func New(ctx context.Context, cfg *config.Config) *Broker {
 			LocalAddr: localAddr,
 		}),
 	}
+
+	for _, opt := range o {
+		opt(b)
+	}
+	return b
+}
+
+func WithProbes() BrokerOption {
+	return func(b *Broker) {
+		if b.mux == nil {
+			b.mux = http.NewServeMux()
+		}
+		b.mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) {
+			if b.wg == nil {
+				http.Error(w, "wireguard tunnel is not running", http.StatusServiceUnavailable)
+				return
+			}
+			w.WriteHeader(http.StatusOK)
+			fmt.Fprint(w, "ok")
+		})
+		b.mux.HandleFunc("GET /readyz", func(w http.ResponseWriter, r *http.Request) {
+			if b.wg == nil || !b.wg.HubConnected() {
+				http.Error(w, "not ready, hub not connected", http.StatusServiceUnavailable)
+				return
+			}
+			w.WriteHeader(http.StatusOK)
+			fmt.Fprint(w, "ok")
+		})
+	}
+}
+
+// Start wireguard tunnel and HTTP/HTTPS proxies
+func (b *Broker) Start() error {
+	tnet, err := b.wg.Start()
+	if err != nil {
+		return err
+	}
+
+	_ = tnet // TODO: use tnet for HTTP/TLS proxy listeners
+
+	done := make(chan error, 1)
+	if b.mux != nil {
+		go func() { done <- b.serve() }()
+	}
+
+	b.log.Info().Msg("broker started")
+
+	sig := make(chan os.Signal, 1)
+	signal.Notify(sig, syscall.SIGINT, syscall.SIGTERM)
+
+	select {
+	case <-sig:
+		b.log.Info().Msg("shutting down")
+		b.close()
+		return nil
+	case <-b.wg.Dead:
+		b.close()
+		return fmt.Errorf("hub unreachable, exhausted reconnect attempts")
+	case err := <-done:
+		b.close()
+		return fmt.Errorf("http server: %w", err)
+	}
+}
+
+func (b *Broker) serve() error {
+	b.http = &http.Server{
+		Addr:    fmt.Sprintf(":%d", b.cfg.Server.Port),
+		Handler: b.mux,
+	}
+	b.log.Info().Str("addr", b.http.Addr).Msg("starting http server")
+	return b.http.ListenAndServe()
+}
+
+func (b *Broker) close() {
+	if b.http == nil {
+		return
+	}
+	b.http.Close()
 }
 
 func registerWithHub(ctx context.Context, cfg *config.Config) (*registrationResponse, error) {
@@ -144,27 +228,4 @@ func registerWithHub(ctx context.Context, cfg *config.Config) (*registrationResp
 	}
 
 	return &regResp, nil
-}
-
-// Start wireguard tunnel and HTTP/HTTPS proxies
-func (b *Broker) Start() error {
-	tnet, err := b.wg.Start()
-	if err != nil {
-		return err
-	}
-
-	_ = tnet // TODO: use tnet for HTTP/TLS proxy listeners
-
-	b.log.Info().Msg("broker started")
-
-	sig := make(chan os.Signal, 1)
-	signal.Notify(sig, syscall.SIGINT, syscall.SIGTERM)
-
-	select {
-	case <-sig:
-		b.log.Info().Msg("shutting down")
-		return nil
-	case <-b.wg.Dead:
-		return fmt.Errorf("hub unreachable, exhausted reconnect attempts")
-	}
 }

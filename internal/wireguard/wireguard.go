@@ -117,6 +117,13 @@ func (w *Wireguard) Start() (*netstack.Net, error) {
 	return tnet, nil
 }
 
+// HubConnected returns true if the hub handshake is fresh.
+func (w *Wireguard) HubConnected() bool {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	return w.hubConnected
+}
+
 func (w *Wireguard) stop() {
 	if w.dev != nil {
 		w.dev.Close()
