@@ -44,6 +44,15 @@ type ProxyConfig struct {
 	// Domains to be routed too. Typically a top level
 	// such as acme.local would resolve for app.acme.local
 	Domains []string `koanf:"domains"`
+	// Ports to proxy
+	Ports Ports `konaf:"ports"`
+}
+
+type Ports struct {
+	// HTTP ports to proxy default is [80]
+	HTTP []uint16 `koanf:"http"`
+	// HTTPS ports to proxy default is [443]
+	HTTPS []uint16 `koanf:"https"`
 }
 
 type LogConfig struct {
@@ -61,6 +70,12 @@ var defaultConfig = Config{
 	},
 	Server: ServerConfig{
 		Port: 8888,
+	},
+	Proxy: ProxyConfig{
+		Ports: Ports{
+			HTTP:  []uint16{80},
+			HTTPS: []uint16{443},
+		},
 	},
 }
 
