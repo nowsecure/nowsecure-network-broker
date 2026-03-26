@@ -11,7 +11,7 @@ import (
 
 	"github.com/nowsecure/nowsecure-network-broker/internal/broker"
 	"github.com/nowsecure/nowsecure-network-broker/internal/config"
-	"github.com/nowsecure/nowsecure-network-broker/logger"
+	"github.com/nowsecure/nowsecure-network-broker/pkg/logger"
 )
 
 func main() {
@@ -60,7 +60,11 @@ func NewStartCmd(cfg *config.Config) *cobra.Command {
 		RunE: func(cmd *cobra.Command, args []string) error {
 			ctx := cmd.Context()
 			zerolog.Ctx(ctx).Info().Msg("starting broker")
-			return broker.New(ctx, cfg, buildBrokerOptions(cfg)...).Start()
+			b, err := broker.New(ctx, cfg, buildBrokerOptions(cfg)...)
+			if err != nil {
+				return err
+			}
+			return b.Start(ctx)
 		},
 	}
 }

@@ -57,8 +57,11 @@ func New(log *zerolog.Logger, cfg config.TunnelConfig, input RegistrationInfo) *
 	if cfg.HeartbeatInterval == 0 {
 		cfg.HeartbeatInterval = defaultHeartbeatInterval
 	}
+	logger := log.With().
+		Str("component", "tunnel").
+		Logger()
 	return &Wireguard{
-		log:   log,
+		log:   &logger,
 		cfg:   cfg,
 		input: input,
 		Dead:  make(chan struct{}),
@@ -89,7 +92,11 @@ func (w *Wireguard) Start() (*netstack.Net, error) {
 		return nil, fmt.Errorf("create tun: %w", err)
 	}
 
-	w.dev = device.NewDevice(tun, conn.NewDefaultBind(), device.NewLogger(device.LogLevelSilent, ""))
+	devLogLevel := device.LogLevelSilent
+	if w.log.GetLevel() <= zerolog.DebugLevel {
+		devLogLevel = device.LogLevelVerbose
+	}
+	w.dev = device.NewDevice(tun, conn.NewDefaultBind(), device.NewLogger(devLogLevel, "wireguard: "))
 
 	deviceIPC, err := wgipc.DeviceIPC(w.cfg.PrivateKey, 0)
 	if err != nil {
