@@ -2,16 +2,12 @@ package broker
 
 import (
 	"crypto/ecdh"
-	"crypto/hmac"
 	"crypto/rand"
-	"crypto/sha256"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
-	"io"
 	"net/http"
 	"net/http/httptest"
-	"strconv"
 	"syscall"
 	"testing"
 	"time"
@@ -19,7 +15,6 @@ import (
 	"github.com/rs/zerolog"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"golang.org/x/crypto/curve25519"
 
 	"github.com/nowsecure/nowsecure-network-broker/internal/config"
 	"github.com/nowsecure/nowsecure-network-broker/internal/proxy"
@@ -34,159 +29,32 @@ func testKeys(t *testing.T) (privB64, pubB64 string) {
 		base64.StdEncoding.EncodeToString(key.PublicKey().Bytes())
 }
 
-func TestRegisterWithHub(t *testing.T) {
-	brokerPriv, brokerPub := testKeys(t)
-	hubPriv, hubPub := testKeys(t)
-
-	hubPrivBytes, _ := base64.StdEncoding.DecodeString(hubPriv)
-	brokerPubBytes, _ := base64.StdEncoding.DecodeString(brokerPub)
-	sharedSecret, err := curve25519.X25519(hubPrivBytes, brokerPubBytes)
-	require.NoError(t, err)
-
-	t.Run("success", func(t *testing.T) {
-		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			assert.Equal(t, http.MethodPost, r.Method)
-			assert.Equal(t, "/broker/register", r.URL.Path)
-
-			ts := r.Header.Get("X-Timestamp")
-			auth := r.Header.Get("Authorization")
-			require.NotEmpty(t, ts, "missing X-Timestamp")     //nolint:testifylint // require in handler is intentional
-			require.NotEmpty(t, auth, "missing Authorization") //nolint:testifylint // require in handler is intentional
-
-			// Verify HMAC from the hub's perspective
-			body, err := io.ReadAll(r.Body)
-			require.NoError(t, err) //nolint:testifylint // require in handler is intentional
-
-			mac := hmac.New(sha256.New, sharedSecret)
-			mac.Write([]byte(ts))
-			mac.Write([]byte("\n"))
-			mac.Write(body)
-			expectedSig := "HMAC " + base64.StdEncoding.EncodeToString(mac.Sum(nil))
-			assert.Equal(t, expectedSig, auth, "HMAC mismatch")
-
-			// Verify request body
-			var req registrationRequest
-			require.NoError(t, json.Unmarshal(body, &req)) //nolint:testifylint // require in handler is intentional
-			assert.Equal(t, []string{"example.com"}, req.Proxy.Domains)
-
-			w.Header().Set("Content-Type", "application/json")
-			w.Header().Set("X-Request-ID", "req-abc-123")
-			_ = json.NewEncoder(w).Encode(registrationResponse{
-				Message:     "broker successfully registered",
-				BrokerIP:    "10.0.0.2/32",
-				HubPort:     51820,
-				AllowedCIDR: "10.0.0.0/24",
-			})
-		}))
-		defer srv.Close()
-
-		cfg := &config.Config{
-			Wireguard: config.TunnelConfig{
-				PrivateKey:   brokerPriv,
-				HubPublicKey: hubPub,
-			},
-			HubURL: srv.URL,
-			Proxy:  config.ProxyConfig{Domains: []string{"example.com"}},
-		}
-
-		resp, err := registerWithHub(t.Context(), cfg)
-		require.NoError(t, err)
-		assert.Equal(t, 51820, resp.HubPort)
-		assert.Equal(t, "10.0.0.0/24", resp.AllowedCIDR)
-		assert.Equal(t, "broker successfully registered", resp.Message)
-	})
-
-	t.Run("hub returns error status", func(t *testing.T) {
-		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			w.WriteHeader(http.StatusInternalServerError)
-		}))
-		defer srv.Close()
-
-		cfg := &config.Config{
-			Wireguard: config.TunnelConfig{
-				PrivateKey:   brokerPriv,
-				HubPublicKey: hubPub,
-			},
-			HubURL: srv.URL,
-		}
-
-		_, err := registerWithHub(t.Context(), cfg)
-		require.Error(t, err)
-		assert.Contains(t, err.Error(), "returned status 500")
-	})
-
-	t.Run("hub unreachable", func(t *testing.T) {
-		cfg := &config.Config{
-			Wireguard: config.TunnelConfig{
-				PrivateKey:   brokerPriv,
-				HubPublicKey: hubPub,
-			},
-			HubURL: "http://127.0.0.1:1",
-		}
-
-		_, err := registerWithHub(t.Context(), cfg)
-		require.Error(t, err)
-	})
-
-	t.Run("invalid private key", func(t *testing.T) {
-		cfg := &config.Config{
-			Wireguard: config.TunnelConfig{
-				PrivateKey:   "not-valid-base64!!!",
-				HubPublicKey: hubPub,
-			},
-			HubURL: "http://localhost",
-		}
-
-		_, err := registerWithHub(t.Context(), cfg)
-		require.Error(t, err)
-		assert.Contains(t, err.Error(), "decode private key")
-	})
-
-	t.Run("timestamp is current", func(t *testing.T) {
-		var capturedTimestamp int64
-		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			ts, _ := strconv.ParseInt(r.Header.Get("X-Timestamp"), 10, 64)
-			capturedTimestamp = ts
-			w.Header().Set("Content-Type", "application/json")
-			_ = json.NewEncoder(w).Encode(registrationResponse{HubPort: 51820, AllowedCIDR: "10.0.0.0/24"})
-		}))
-		defer srv.Close()
-
-		cfg := &config.Config{
-			Wireguard: config.TunnelConfig{
-				PrivateKey:   brokerPriv,
-				HubPublicKey: hubPub,
-			},
-			HubURL: srv.URL,
-		}
-
-		_, err := registerWithHub(t.Context(), cfg)
-		require.NoError(t, err)
-		assert.WithinDuration(t, time.Now(), time.Unix(capturedTimestamp, 0), 5*time.Second)
-	})
+// mockHubServer returns an httptest.Server that responds to /broker/register.
+func mockHubServer(t *testing.T) *httptest.Server {
+	t.Helper()
+	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"ip":          "10.0.0.2/32",
+			"hubPort":     51820,
+			"allowedCIDR": "10.0.0.0/24",
+		})
+	}))
 }
 
 func TestNew(t *testing.T) {
 	brokerPriv, _ := testKeys(t)
 	_, hubPub := testKeys(t)
 
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		_ = json.NewEncoder(w).Encode(registrationResponse{
-			Message:     "broker successfully registered",
-			BrokerIP:    "10.0.0.2/32",
-			HubPort:     51820,
-			AllowedCIDR: "10.0.0.0/24",
-		})
-	}))
-	defer srv.Close()
+	hub := mockHubServer(t)
+	defer hub.Close()
 
 	cfg := &config.Config{
 		Wireguard: config.TunnelConfig{
 			PrivateKey:   brokerPriv,
 			HubPublicKey: hubPub,
 		},
-		HubURL: srv.URL,
+		HubURL: hub.URL,
 		Proxy:  config.ProxyConfig{Domains: []string{"example.com"}},
 	}
 
@@ -197,47 +65,6 @@ func TestNew(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, b)
 	assert.NotNil(t, b.wg)
-}
-
-func TestNew_RegistrationRequestBody(t *testing.T) {
-	brokerPriv, _ := testKeys(t)
-	_, hubPub := testKeys(t)
-
-	var capturedReq registrationRequest
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		body, _ := io.ReadAll(r.Body)
-		_ = json.Unmarshal(body, &capturedReq)
-		w.Header().Set("Content-Type", "application/json")
-		_ = json.NewEncoder(w).Encode(registrationResponse{
-			HubPort:     51820,
-			AllowedCIDR: "10.0.0.0/24",
-		})
-	}))
-	defer srv.Close()
-
-	cfg := &config.Config{
-		Wireguard: config.TunnelConfig{
-			PrivateKey:   brokerPriv,
-			HubPublicKey: hubPub,
-		},
-		HubURL: srv.URL,
-		Proxy: config.ProxyConfig{
-			Domains: []string{"api.example.com"},
-			Ports: config.Ports{
-				HTTP:  []uint16{80, 8080},
-				HTTPS: []uint16{443},
-			},
-		},
-	}
-
-	logger := zerolog.Nop()
-	ctx := logger.WithContext(t.Context())
-	_, err := New(ctx, cfg)
-	require.NoError(t, err)
-
-	assert.Equal(t, []string{"api.example.com"}, capturedReq.Proxy.Domains)
-	assert.Equal(t, []uint16{80, 8080}, capturedReq.Proxy.Ports.HTTP)
-	assert.Equal(t, []uint16{443}, capturedReq.Proxy.Ports.HTTPS)
 }
 
 func TestWithProbes_Healthz(t *testing.T) {
@@ -290,29 +117,36 @@ func TestWithProbes_Readyz(t *testing.T) {
 
 func newTestBroker(t *testing.T, opts ...Option) *Broker {
 	t.Helper()
+	hub := mockHubServer(t)
+	t.Cleanup(hub.Close)
+
 	brokerPriv, _ := testKeys(t)
 	_, hubPub := testKeys(t)
 
 	logger := zerolog.Nop()
 	log := &logger
 
-	ports := config.Ports{HTTP: []uint16{0}, HTTPS: []uint16{0}}
+	cfg := &config.Config{
+		Wireguard: config.TunnelConfig{
+			PrivateKey:        brokerPriv,
+			HubPublicKey:      hubPub,
+			HeartbeatInterval: time.Hour,
+		},
+		HubURL: hub.URL,
+		Server: config.ServerConfig{Port: 0},
+		Proxy: config.ProxyConfig{
+			Ports: config.Ports{HTTP: []uint16{0}, HTTPS: []uint16{0}},
+		},
+	}
+
+	wg, err := wireguard.New(t.Context(), log, cfg)
+	require.NoError(t, err)
+
 	b := &Broker{
 		log:   log,
-		proxy: proxy.New(log, &ports),
-		cfg: &config.Config{
-			Server: config.ServerConfig{Port: 0},
-		},
-		wg: wireguard.New(log, config.TunnelConfig{
-			PrivateKey:        brokerPriv,
-			HeartbeatInterval: time.Hour,
-		}, wireguard.RegistrationInfo{
-			PublicKey: hubPub,
-			Host:      "127.0.0.1",
-			Port:      51820,
-			AllowedIP: "10.0.0.0/24",
-			LocalAddr: "10.0.0.2",
-		}),
+		proxy: proxy.New(log, &cfg.Proxy.Ports),
+		cfg:   cfg,
+		wg:    wg,
 	}
 
 	for _, opt := range opts {
