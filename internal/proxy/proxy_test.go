@@ -141,7 +141,7 @@ func TestStartHTTPProxy_Director(t *testing.T) {
 	backendPort, _ := strconv.Atoi(backendPortStr)
 
 	proxyAddr := startProxy(t,
-		func(addr *net.TCPAddr) (*net.TCPListener, error) { return net.ListenTCP("tcp", addr) },
+		func(_ *net.TCPAddr) (*net.TCPListener, error) { return net.ListenTCP("tcp", &net.TCPAddr{}) },
 		func(listen ListenTCPFunc) error { return p.startHTTPProxy(t.Context(), listen, backendPort) },
 	)
 

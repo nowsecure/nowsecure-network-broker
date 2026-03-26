@@ -28,7 +28,7 @@ import (
 )
 
 type Broker struct {
-	proxy proxy.Proxy
+	proxy *proxy.Proxy
 	log   *zerolog.Logger
 	wg    *wireguard.Wireguard
 	cfg   *config.Config
@@ -42,7 +42,13 @@ type registrationRequest struct {
 }
 
 type proxyConfig struct {
-	Domains []string `json:"domains"`
+	Domains []string   `json:"domains"`
+	Ports   proxyPorts `json:"ports"`
+}
+
+type proxyPorts struct {
+	HTTP  []uint16 `json:"http"`
+	HTTPS []uint16 `json:"https"`
 }
 
 type registrationResponse struct {
@@ -73,7 +79,7 @@ func New(ctx context.Context, cfg *config.Config, o ...Option) (*Broker, error) 
 	localAddr, _, _ := strings.Cut(resp.IP, "/")
 
 	b := &Broker{
-		proxy: *proxy.New(log, &cfg.Proxy.Ports),
+		proxy: proxy.New(log, &cfg.Proxy.Ports),
 		log:   log,
 		cfg:   cfg,
 		wg: wireguard.New(log, cfg.Wireguard, wireguard.RegistrationInfo{
@@ -120,12 +126,12 @@ func (b *Broker) Start(ctx context.Context) error {
 		return err
 	}
 
-	listen := proxy.ListenTCPFunc(func(addr *net.TCPAddr) (net.Listener, error) {
-		return tnet.ListenTCP(addr)
-	})
-
 	done := make(chan error, 2)
-	go func() { done <- b.proxy.Start(ctx, listen) }()
+	go func() {
+		done <- b.proxy.Start(ctx, proxy.ListenTCPFunc(func(addr *net.TCPAddr) (net.Listener, error) {
+			return tnet.ListenTCP(addr)
+		}))
+	}()
 
 	if b.mux != nil {
 		go func() { done <- b.serve() }()
@@ -183,6 +189,10 @@ func registerWithHub(ctx context.Context, cfg *config.Config) (*registrationResp
 	reqBody := registrationRequest{
 		Proxy: proxyConfig{
 			Domains: cfg.Proxy.Domains,
+			Ports: proxyPorts{
+				HTTP:  cfg.Proxy.Ports.HTTP,
+				HTTPS: cfg.Proxy.Ports.HTTPS,
+			},
 		},
 	}
 
