@@ -22,6 +22,7 @@ import (
 	"golang.org/x/crypto/curve25519"
 
 	"github.com/nowsecure/nowsecure-network-broker/internal/config"
+	"github.com/nowsecure/nowsecure-network-broker/internal/proxy"
 	"github.com/nowsecure/nowsecure-network-broker/internal/wireguard"
 )
 
@@ -192,7 +193,8 @@ func TestNew(t *testing.T) {
 	logger := zerolog.Nop()
 	ctx := logger.WithContext(t.Context())
 
-	b := New(ctx, cfg)
+	b, err := New(ctx, cfg)
+	require.NoError(t, err)
 	require.NotNil(t, b)
 	assert.NotNil(t, b.wg)
 }
@@ -226,7 +228,8 @@ func TestNew_RegistrationRequestBody(t *testing.T) {
 
 	logger := zerolog.Nop()
 	ctx := logger.WithContext(t.Context())
-	_ = New(ctx, cfg)
+	_, err := New(ctx, cfg)
+	require.NoError(t, err)
 
 	assert.Equal(t, []string{"api.example.com"}, capturedReq.Proxy.Domains)
 }
@@ -287,8 +290,10 @@ func newTestBroker(t *testing.T, opts ...Option) *Broker {
 	logger := zerolog.Nop()
 	log := &logger
 
+	ports := config.Ports{HTTP: []uint16{0}, HTTPS: []uint16{0}}
 	b := &Broker{
-		log: log,
+		log:   log,
+		proxy: *proxy.New(log, &ports),
 		cfg: &config.Config{
 			Server: config.ServerConfig{Port: 0},
 		},
@@ -314,7 +319,7 @@ func TestStart_SignalShutdown(t *testing.T) {
 	b := newTestBroker(t)
 
 	errCh := make(chan error, 1)
-	go func() { errCh <- b.Start() }()
+	go func() { errCh <- b.Start(t.Context()) }()
 
 	// Give Start time to bring up the tunnel
 	time.Sleep(100 * time.Millisecond)
@@ -334,7 +339,7 @@ func TestStart_DeadChannel(t *testing.T) {
 	b := newTestBroker(t)
 
 	errCh := make(chan error, 1)
-	go func() { errCh <- b.Start() }()
+	go func() { errCh <- b.Start(t.Context()) }()
 
 	time.Sleep(100 * time.Millisecond)
 
@@ -355,7 +360,7 @@ func TestStart_WithProbes(t *testing.T) {
 	b.cfg.Server.Port = 18923
 
 	errCh := make(chan error, 1)
-	go func() { errCh <- b.Start() }()
+	go func() { errCh <- b.Start(t.Context()) }()
 
 	require.Eventually(t, func() bool {
 		if b.http == nil {
