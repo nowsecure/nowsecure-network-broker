@@ -1,19 +1,30 @@
 package wireguard
 
 import (
+	"bytes"
 	"context"
+	"crypto/hmac"
+	"crypto/sha256"
+	"encoding/base64"
+	"encoding/json"
 	"fmt"
 	"net"
+	"net/http"
 	"net/netip"
+	"net/url"
+	"strconv"
+	"strings"
 	"sync"
 	"time"
 
 	"github.com/rs/zerolog"
+	"golang.org/x/crypto/curve25519"
 	"golang.zx2c4.com/wireguard/conn"
 	"golang.zx2c4.com/wireguard/device"
 	"golang.zx2c4.com/wireguard/tun/netstack"
 
 	"github.com/nowsecure/nowsecure-network-broker/internal/config"
+	"github.com/nowsecure/nowsecure-network-broker/pkg/logger"
 	wgipc "github.com/nowsecure/nowsecure-network-broker/pkg/wireguard"
 )
 
@@ -25,15 +36,13 @@ const (
 	maxDisconnectRetries     = 20
 )
 
-// RegistrationInfo holds config that isn't available until registration time.
-type RegistrationInfo struct {
-	PublicKey string
-	Host      string
-	Port      int
-	// the allowed IPs typically gonna be 10.0.0.0/24
-	AllowedIP string
-	// this clients address
-	LocalAddr string
+// registrationInfo holds connection details derived from hub registration.
+type registrationInfo struct {
+	publicKey string
+	host      string
+	port      int
+	allowedIP string
+	localAddr string
 }
 
 // Wireguard manages the broker's WireGuard tunnel to the hub.
@@ -48,24 +57,54 @@ type Wireguard struct {
 	// maxDisconnectRetries consecutive heartbeat checks.
 	Dead chan struct{}
 
-	cfg   config.TunnelConfig
-	input RegistrationInfo
+	cfg   *config.Config
+	input *registrationInfo
 	log   *zerolog.Logger
 }
 
-func New(log *zerolog.Logger, cfg config.TunnelConfig, input RegistrationInfo) *Wireguard {
-	if cfg.HeartbeatInterval == 0 {
-		cfg.HeartbeatInterval = defaultHeartbeatInterval
+// New registers with the hub and returns a ready-to-start Wireguard instance.
+func New(ctx context.Context, log *zerolog.Logger, cfg *config.Config) (*Wireguard, error) {
+	if cfg.Wireguard.HeartbeatInterval == 0 {
+		cfg.Wireguard.HeartbeatInterval = defaultHeartbeatInterval
 	}
-	logger := log.With().
+	l := log.With().
 		Str("component", "tunnel").
 		Logger()
-	return &Wireguard{
-		log:   &logger,
-		cfg:   cfg,
-		input: input,
-		Dead:  make(chan struct{}),
+
+	w := &Wireguard{
+		log:  &l,
+		cfg:  cfg,
+		Dead: make(chan struct{}),
 	}
+
+	if err := w.register(ctx); err != nil {
+		return nil, err
+	}
+	return w, nil
+}
+
+// register calls the hub registration endpoint and populates w.input.
+func (w *Wireguard) register(ctx context.Context) error {
+	w.log.Info().Msgf("registering proxy config with hub: %s", w.cfg.HubURL)
+	resp, err := registerWithHub(ctx, w.cfg)
+	if err != nil {
+		return fmt.Errorf("register with hub: %w", err)
+	}
+	w.log.Info().
+		Int("wireguard_port", resp.HubPort).
+		Msg("registered with hub")
+
+	hubURL, _ := url.Parse(w.cfg.HubURL)
+	localAddr, _, _ := strings.Cut(resp.IP, "/")
+
+	w.input = &registrationInfo{
+		publicKey: w.cfg.Wireguard.HubPublicKey,
+		host:      hubURL.Hostname(),
+		port:      resp.HubPort,
+		allowedIP: resp.AllowedCIDR,
+		localAddr: localAddr,
+	}
+	return nil
 }
 
 // Start creates the WireGuard tunnel and connects to the hub.
@@ -73,12 +112,12 @@ func (w *Wireguard) Start() (*netstack.Net, error) {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 
-	localAddr, err := netip.ParseAddr(w.input.LocalAddr)
+	localAddr, err := netip.ParseAddr(w.input.localAddr)
 	if err != nil {
 		return nil, fmt.Errorf("parse local address: %w", err)
 	}
 
-	mtu := w.cfg.MTU
+	mtu := w.cfg.Wireguard.MTU
 	if mtu == 0 {
 		mtu = defaultMTU
 	}
@@ -98,7 +137,7 @@ func (w *Wireguard) Start() (*netstack.Net, error) {
 	}
 	w.dev = device.NewDevice(tun, conn.NewDefaultBind(), device.NewLogger(devLogLevel, "wireguard: "))
 
-	deviceIPC, err := wgipc.DeviceIPC(w.cfg.PrivateKey, 0)
+	deviceIPC, err := wgipc.DeviceIPC(w.cfg.Wireguard.PrivateKey, 0)
 	if err != nil {
 		return nil, fmt.Errorf("generate device ipc: %w", err)
 	}
@@ -117,9 +156,9 @@ func (w *Wireguard) Start() (*netstack.Net, error) {
 	go w.runHeartbeat()
 
 	w.log.Info().
-		Str("local_addr", w.input.LocalAddr).
-		Str("hub_host", w.input.Host).
-		Int("hub_port", w.input.Port).
+		Str("local_addr", w.input.localAddr).
+		Str("hub_host", w.input.host).
+		Int("hub_port", w.input.port).
 		Msg("wireguard tunnel started")
 
 	return tnet, nil
@@ -139,9 +178,9 @@ func (w *Wireguard) stop() {
 	}
 }
 
-// resolveEndpoint resolves input.Host to an IP
+// resolveEndpoint resolves input.host to an IP.
 func (w *Wireguard) resolveEndpoint() (string, error) {
-	host := w.input.Host
+	host := w.input.host
 	ips, err := net.DefaultResolver.LookupHost(context.Background(), host)
 	if err != nil {
 		return "", fmt.Errorf("resolve hub host %q: %w", host, err)
@@ -149,10 +188,10 @@ func (w *Wireguard) resolveEndpoint() (string, error) {
 	if len(ips) == 0 {
 		return "", fmt.Errorf("resolve hub host %q: no addresses found", host)
 	}
-	return fmt.Sprintf("%s:%d", ips[0], w.input.Port), nil
+	return fmt.Sprintf("%s:%d", ips[0], w.input.port), nil
 }
 
-// setHubPeer configures hubPeer caller must lock
+// setHubPeer configures the hub peer. Caller must hold w.mu.
 func (w *Wireguard) setHubPeer() error {
 	endpoint, err := w.resolveEndpoint()
 	if err != nil {
@@ -161,8 +200,8 @@ func (w *Wireguard) setHubPeer() error {
 
 	hubPeer := wgipc.PeerConfig{
 		Name:      "hub",
-		PublicKey: w.input.PublicKey,
-		AllowedIP: w.input.AllowedIP,
+		PublicKey: w.input.publicKey,
+		AllowedIP: w.input.allowedIP,
 	}
 	peerIPC, err := wgipc.PeerWithEndpointIPC(hubPeer, endpoint, defaultKeepalive)
 	if err != nil {
@@ -177,7 +216,7 @@ func (w *Wireguard) setHubPeer() error {
 }
 
 func (w *Wireguard) runHeartbeat() {
-	ticker := time.NewTicker(w.cfg.HeartbeatInterval)
+	ticker := time.NewTicker(w.cfg.Wireguard.HeartbeatInterval)
 	defer ticker.Stop()
 
 	for range ticker.C {
@@ -185,8 +224,6 @@ func (w *Wireguard) runHeartbeat() {
 	}
 }
 
-// i think this can be put into the pkg/wireguard pkg
-// i think we can make it generic
 func (w *Wireguard) checkHubHealth() {
 	w.mu.Lock()
 	defer w.mu.Unlock()
@@ -202,7 +239,7 @@ func (w *Wireguard) checkHubHealth() {
 		return
 	}
 
-	hubKeyHex, err := wgipc.PubKeyToHex(w.input.PublicKey)
+	hubKeyHex, err := wgipc.PubKeyToHex(w.input.publicKey)
 	if err != nil {
 		w.log.Error().Err(err).Msg("invalid hub public key")
 		return
@@ -215,7 +252,7 @@ func (w *Wireguard) checkHubHealth() {
 		w.log.Warn().
 			Int("miss", w.disconnectMiss).
 			Int("max", maxDisconnectRetries).
-			Msg("hub not connected, waiting for handshake")
+			Msg("hub not connected, attempting re-registration")
 
 		if w.disconnectMiss >= maxDisconnectRetries {
 			w.log.Error().Msg("hub unreachable after max retries, giving up")
@@ -223,9 +260,8 @@ func (w *Wireguard) checkHubHealth() {
 			return
 		}
 
-		// Re-resolve the hub endpoint in case the IP changed
-		if err := w.setHubPeer(); err != nil {
-			w.log.Error().Err(err).Msg("failed to re-resolve hub endpoint")
+		if err := w.reregister(); err != nil {
+			w.log.Warn().Err(err).Msg("reregister failed, will retry")
 		}
 		return
 	}
@@ -235,4 +271,123 @@ func (w *Wireguard) checkHubHealth() {
 	w.log.Info().
 		Time("last_handshake", lastHandshake).
 		Msg("hub is connected")
+}
+
+func (w *Wireguard) reregister() error {
+	w.log.Info().Msg("attempting re-registration with hub")
+
+	w.mu.Unlock()
+	err := w.register(context.Background())
+	w.mu.Lock()
+	if err != nil {
+		return fmt.Errorf("re-registration failed: %w", err)
+	}
+
+	if err := w.setHubPeer(); err != nil {
+		return fmt.Errorf("failed to set hub peer: %w", err)
+	}
+
+	w.log.Info().
+		Int("hub_port", w.input.port).
+		Msg("re-registered with hub, waiting for handshake")
+	return nil
+}
+
+type registrationRequest struct {
+	Proxy proxyConfig `json:"proxy"`
+}
+
+type proxyConfig struct {
+	Domains []string   `json:"domains"`
+	Ports   proxyPorts `json:"ports"`
+}
+
+type proxyPorts struct {
+	HTTP  []uint16 `json:"http"`
+	HTTPS []uint16 `json:"https"`
+}
+
+type registrationResponse struct {
+	Message     string `json:"message"`
+	IP          string `json:"ip"`
+	BrokerIP    string `json:"brokerIP"`
+	HubPort     int    `json:"hubPort"`
+	AllowedCIDR string `json:"allowedCIDR"`
+}
+
+func registerWithHub(ctx context.Context, cfg *config.Config) (*registrationResponse, error) {
+	privKey, err := base64.StdEncoding.DecodeString(cfg.Wireguard.PrivateKey)
+	if err != nil {
+		return nil, fmt.Errorf("decode private key: %w", err)
+	}
+	hubPubKey, err := base64.StdEncoding.DecodeString(cfg.Wireguard.HubPublicKey)
+	if err != nil {
+		return nil, fmt.Errorf("decode hub public key: %w", err)
+	}
+
+	reqBody := registrationRequest{
+		Proxy: proxyConfig{
+			Domains: cfg.Proxy.Domains,
+			Ports: proxyPorts{
+				HTTP:  cfg.Proxy.Ports.HTTP,
+				HTTPS: cfg.Proxy.Ports.HTTPS,
+			},
+		},
+	}
+
+	body, err := json.Marshal(reqBody)
+	if err != nil {
+		return nil, fmt.Errorf("marshal registration request: %w", err)
+	}
+
+	shared, err := curve25519.X25519(privKey, hubPubKey)
+	if err != nil {
+		return nil, fmt.Errorf("X25519: %w", err)
+	}
+
+	timestamp := strconv.FormatInt(time.Now().Unix(), 10)
+	mac := hmac.New(sha256.New, shared)
+	mac.Write([]byte(timestamp))
+	mac.Write([]byte("\n"))
+	mac.Write(body)
+	sig := base64.StdEncoding.EncodeToString(mac.Sum(nil))
+
+	registerURL := cfg.HubURL + "/broker/register"
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, registerURL, bytes.NewReader(body))
+	if err != nil {
+		return nil, fmt.Errorf("create request: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-Timestamp", timestamp)
+	req.Header.Set("Authorization", "HMAC "+sig)
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("POST %s: %w", registerURL, err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	id := resp.Header.Get("X-Request-ID")
+	if id != "" {
+		ctx = context.WithValue(ctx, logger.SpanIDKey, id)
+	}
+
+	if resp.StatusCode == http.StatusBadRequest {
+		return nil, fmt.Errorf("broker still registered, if re-registering hub could still be cleaning up old connection")
+	}
+
+	if resp.StatusCode != http.StatusOK {
+		err := fmt.Errorf("POST %s returned status %d", registerURL, resp.StatusCode)
+		zerolog.Ctx(ctx).Err(err).Ctx(ctx).Send()
+		return nil, err
+	}
+
+	var regResp registrationResponse
+	if err := json.NewDecoder(resp.Body).Decode(&regResp); err != nil {
+		err := fmt.Errorf("decode registration response: %w", err)
+		zerolog.Ctx(ctx).Err(err).Ctx(ctx).Send()
+		return nil, err
+	}
+
+	return &regResp, nil
 }
