@@ -8,6 +8,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"net"
 	"net/http"
 	"net/url"
 	"os"
@@ -21,15 +22,16 @@ import (
 	"golang.org/x/crypto/curve25519"
 
 	"github.com/nowsecure/nowsecure-network-broker/internal/config"
+	"github.com/nowsecure/nowsecure-network-broker/internal/proxy"
 	"github.com/nowsecure/nowsecure-network-broker/internal/wireguard"
-	"github.com/nowsecure/nowsecure-network-broker/logger"
+	"github.com/nowsecure/nowsecure-network-broker/pkg/logger"
 )
 
 type Broker struct {
-	ctx context.Context
-	log *zerolog.Logger
-	wg  *wireguard.Wireguard
-	cfg *config.Config
+	proxy proxy.Proxy
+	log   *zerolog.Logger
+	wg    *wireguard.Wireguard
+	cfg   *config.Config
 
 	http *http.Server
 	mux  *http.ServeMux
@@ -40,8 +42,7 @@ type registrationRequest struct {
 }
 
 type proxyConfig struct {
-	Domains     []string `json:"domains"`
-	AllowedURLs []string `json:"allowedURLs"`
+	Domains []string `json:"domains"`
 }
 
 type registrationResponse struct {
@@ -54,13 +55,13 @@ type registrationResponse struct {
 
 type Option = func(b *Broker)
 
-func New(ctx context.Context, cfg *config.Config, o ...Option) *Broker {
+func New(ctx context.Context, cfg *config.Config, o ...Option) (*Broker, error) {
 	log := zerolog.Ctx(ctx)
 
 	log.Info().Msgf("registering proxy config with hub: %s", cfg.HubURL)
 	resp, err := registerWithHub(ctx, cfg)
 	if err != nil {
-		log.Fatal().Ctx(ctx).Err(err).Msg("failed to register with hub")
+		return nil, fmt.Errorf("register with hub: %w", err)
 	}
 	log.Info().
 		Int("wireguard_port", resp.HubPort).
@@ -72,9 +73,9 @@ func New(ctx context.Context, cfg *config.Config, o ...Option) *Broker {
 	localAddr, _, _ := strings.Cut(resp.IP, "/")
 
 	b := &Broker{
-		ctx: ctx,
-		log: log,
-		cfg: cfg,
+		proxy: *proxy.New(log, &cfg.Proxy.Ports),
+		log:   log,
+		cfg:   cfg,
 		wg: wireguard.New(log, cfg.Wireguard, wireguard.RegistrationInfo{
 			PublicKey: cfg.Wireguard.HubPublicKey,
 			Host:      hubURL.Hostname(),
@@ -87,7 +88,7 @@ func New(ctx context.Context, cfg *config.Config, o ...Option) *Broker {
 	for _, opt := range o {
 		opt(b)
 	}
-	return b
+	return b, nil
 }
 
 func WithProbes() Option {
@@ -113,15 +114,19 @@ func WithProbes() Option {
 }
 
 // Start wireguard tunnel and HTTP/HTTPS proxies
-func (b *Broker) Start() error {
+func (b *Broker) Start(ctx context.Context) error {
 	tnet, err := b.wg.Start()
 	if err != nil {
 		return err
 	}
 
-	_ = tnet // TODO: use tnet for HTTP/TLS proxy listeners
+	listen := proxy.ListenTCPFunc(func(addr *net.TCPAddr) (net.Listener, error) {
+		return tnet.ListenTCP(addr)
+	})
 
-	done := make(chan error, 1)
+	done := make(chan error, 2)
+	go func() { done <- b.proxy.Start(ctx, listen) }()
+
 	if b.mux != nil {
 		go func() { done <- b.serve() }()
 	}
@@ -141,7 +146,7 @@ func (b *Broker) Start() error {
 		return fmt.Errorf("hub unreachable, exhausted reconnect attempts")
 	case err := <-done:
 		b.close()
-		return fmt.Errorf("http server: %w", err)
+		return err
 	}
 }
 
