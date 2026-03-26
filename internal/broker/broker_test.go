@@ -223,6 +223,10 @@ func TestNew_RegistrationRequestBody(t *testing.T) {
 		HubURL: srv.URL,
 		Proxy: config.ProxyConfig{
 			Domains: []string{"api.example.com"},
+			Ports: config.Ports{
+				HTTP:  []uint16{80, 8080},
+				HTTPS: []uint16{443},
+			},
 		},
 	}
 
@@ -232,6 +236,8 @@ func TestNew_RegistrationRequestBody(t *testing.T) {
 	require.NoError(t, err)
 
 	assert.Equal(t, []string{"api.example.com"}, capturedReq.Proxy.Domains)
+	assert.Equal(t, []uint16{80, 8080}, capturedReq.Proxy.Ports.HTTP)
+	assert.Equal(t, []uint16{443}, capturedReq.Proxy.Ports.HTTPS)
 }
 
 func TestWithProbes_Healthz(t *testing.T) {
@@ -293,7 +299,7 @@ func newTestBroker(t *testing.T, opts ...Option) *Broker {
 	ports := config.Ports{HTTP: []uint16{0}, HTTPS: []uint16{0}}
 	b := &Broker{
 		log:   log,
-		proxy: *proxy.New(log, &ports),
+		proxy: proxy.New(log, &ports),
 		cfg: &config.Config{
 			Server: config.ServerConfig{Port: 0},
 		},

@@ -73,7 +73,10 @@ func (p *Proxy) startHTTPProxy(ctx context.Context, listen ListenTCPFunc, port i
 					p.log.Error().Ctx(reqCtx).Err(err).Str("host", h).Msg("failed to resolve host")
 					return
 				}
-				p.log.Info().Ctx(reqCtx).Msgf("HTTP: %s http://%s%s (%s → %s)", req.Method, h, req.URL.Path, h, target)
+				p.log.Info().Str("handler", "HTTP").
+					Int("port", port).
+					Ctx(reqCtx).
+					Msgf("%s http://%s%s (%s → %s)", req.Method, h, req.URL.Path, h, target)
 				req.URL.Scheme = "http"
 				req.URL.Host = target
 			},
@@ -116,17 +119,19 @@ func (c *peekConn) Write(b []byte) (int, error) { return len(b), nil }
 // and returns the SNI hostname
 func extractSNI(client net.Conn) (sni string, peeked []byte) {
 	var buf bytes.Buffer
-	pc := &peekConn{
-		Conn: client,
-		r:    io.TeeReader(client, &buf),
-	}
-
-	tlsConn := tls.Server(pc, &tls.Config{ //nolint:gosec // TLS never completes; used only to parse ClientHello for SNI
-		GetConfigForClient: func(hello *tls.ClientHelloInfo) (*tls.Config, error) {
-			sni = hello.ServerName
-			return nil, fmt.Errorf("sni extracted")
+	tlsConn := tls.Server(
+		&peekConn{
+			Conn: client,
+			r:    io.TeeReader(client, &buf),
 		},
-	})
+		//nolint:gosec // TLS never completes so TLS version doesn't matter;
+		// used only to parse ClientHello for SNI
+		&tls.Config{
+			GetConfigForClient: func(hello *tls.ClientHelloInfo) (*tls.Config, error) {
+				sni = hello.ServerName
+				return nil, fmt.Errorf("sni extracted")
+			},
+		})
 	_ = tlsConn.Handshake() // fails intentionally after capturing SNI
 
 	return sni, buf.Bytes()
@@ -137,6 +142,7 @@ func (p *Proxy) handleTLSConn(ctx context.Context, client net.Conn, port int) {
 	ctx = context.WithValue(ctx, logger.SpanIDKey, uuid.New().String())
 
 	log := p.log.With().
+		Ctx(ctx).
 		Str("handler", "TLS").
 		Int("port", port).
 		Logger()
@@ -144,24 +150,24 @@ func (p *Proxy) handleTLSConn(ctx context.Context, client net.Conn, port int) {
 	log.Info().Msg("attempting to proxy connection")
 	sni, peeked := extractSNI(client)
 	if sni == "" {
-		log.Warn().Ctx(ctx).Msg("no SNI, dropping connection")
+		log.Warn().Msg("no SNI, dropping connection")
 		return
 	}
 
 	backend, err := resolveHost(ctx, sni, port)
 	if err != nil {
-		log.Error().Ctx(ctx).Err(err).Str("target", sni).Msg("failed to resolve host")
+		log.Error().Err(err).Str("target", sni).Msg("failed to resolve host")
 		return
 	}
 
 	upstream, err := net.Dial("tcp", backend)
 	if err != nil {
-		log.Error().Ctx(ctx).Err(err).Str("target", sni).Str("backend", backend).Msg("dial failed")
+		log.Error().Err(err).Str("target", sni).Str("backend", backend).Msg("dial failed")
 		return
 	}
 	defer upstream.Close()
 
-	log.Info().Ctx(ctx).
+	log.Info().
 		Str("remote", client.RemoteAddr().String()).
 		Str("backend", backend).
 		Str("sni", sni).
@@ -169,7 +175,7 @@ func (p *Proxy) handleTLSConn(ctx context.Context, client net.Conn, port int) {
 
 	// Replay the buffered ClientHello to the backend
 	if _, err := upstream.Write(peeked); err != nil {
-		log.Error().Ctx(ctx).Err(err).Str("backend", backend).Msg("replay ClientHello failed")
+		log.Error().Err(err).Str("backend", backend).Msg("replay ClientHello failed")
 		return
 	}
 
@@ -208,6 +214,7 @@ func resolveHost(ctx context.Context, h string, p int) (string, error) {
 	if len(addrs) == 0 {
 		return "", fmt.Errorf("no addresses found for: %s", h)
 	}
+
 	for _, addr := range addrs {
 		u := net.JoinHostPort(addr, strconv.Itoa(p))
 		conn, err := net.DialTimeout("tcp", u, 2*time.Second)
@@ -218,5 +225,6 @@ func resolveHost(ctx context.Context, h string, p int) (string, error) {
 		_ = conn.Close()
 		return u, nil
 	}
+
 	return "", fmt.Errorf("no connectable address found for: %s", h)
 }
