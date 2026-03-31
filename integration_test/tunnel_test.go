@@ -105,8 +105,8 @@ func mockHub(t *testing.T, hubKey, brokerKey keyPair, wgPort int) *httptest.Serv
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(registrationResponse{
 			Message:     "broker successfully registered",
-			IP:          "10.0.0.2/32",
-			BrokerIP:    "10.0.0.2/32",
+			IP:          "10.0.0.2",
+			BrokerIP:    "10.0.0.2",
 			HubPort:     wgPort,
 			AllowedCIDR: "10.0.0.0/24",
 		})
