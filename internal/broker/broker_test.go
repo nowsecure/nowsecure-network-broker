@@ -35,7 +35,7 @@ func mockHubServer(t *testing.T) *httptest.Server {
 	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(map[string]any{
-			"ip":          "10.0.0.2/32",
+			"ip":          "10.0.0.2",
 			"hubPort":     51820,
 			"allowedCIDR": "10.0.0.0/24",
 		})
