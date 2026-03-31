@@ -13,7 +13,6 @@ import (
 	"net/netip"
 	"net/url"
 	"strconv"
-	"strings"
 	"sync"
 	"time"
 
@@ -95,14 +94,13 @@ func (w *Wireguard) register(ctx context.Context) error {
 		Msg("registered with hub")
 
 	hubURL, _ := url.Parse(w.cfg.HubURL)
-	localAddr, _, _ := strings.Cut(resp.IP, "/")
 
 	w.input = &registrationInfo{
 		publicKey: w.cfg.Wireguard.HubPublicKey,
 		host:      hubURL.Hostname(),
 		port:      resp.HubPort,
 		allowedIP: resp.AllowedCIDR,
-		localAddr: localAddr,
+		localAddr: resp.IP,
 	}
 	return nil
 }

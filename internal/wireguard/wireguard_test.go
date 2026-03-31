@@ -36,7 +36,7 @@ func mockHubServer(t *testing.T) *httptest.Server {
 	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(registrationResponse{
-			IP:          "10.0.0.2/32",
+			IP:          "10.0.0.2",
 			HubPort:     51820,
 			AllowedCIDR: "10.0.0.0/24",
 		})
@@ -251,7 +251,7 @@ func TestRegisterWithHub(t *testing.T) {
 			w.Header().Set("X-Request-ID", "req-abc-123")
 			_ = json.NewEncoder(w).Encode(registrationResponse{
 				Message:     "broker successfully registered",
-				BrokerIP:    "10.0.0.2/32",
+				BrokerIP:    "10.0.0.2",
 				HubPort:     51820,
 				AllowedCIDR: "10.0.0.0/24",
 			})
