@@ -30,8 +30,8 @@ import (
 const (
 	defaultMTU               = 1420
 	defaultKeepalive         = 25
-	defaultHeartbeatInterval = 10 * time.Second
-	defaultHandshakeTimeout  = 1 * time.Minute
+	defaultHeartbeatInterval = 20 * time.Second
+	defaultHandshakeTimeout  = 3 * time.Minute
 	maxDisconnectRetries     = 20
 )
 
