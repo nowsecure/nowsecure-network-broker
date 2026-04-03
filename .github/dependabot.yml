@@ -9,6 +9,9 @@ updates:
       github-actions:
         patterns:
           - "*"
+    commit-message:
+      prefix: "chore"
+      include: "scope"
 
   - package-ecosystem: "gomod"
     directory: "/"
@@ -18,3 +21,6 @@ updates:
       go-dependencies:
         patterns:
           - "*"
+    commit-message:
+      prefix: "chore"
+      include: "scope"
