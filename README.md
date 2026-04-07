@@ -52,7 +52,7 @@ wireguard:
 Download the latest binary from GitHub releases:
 
 ```sh
-curl -L https://github.com/nowsecure/nowsecure-network-broker/releases/download/v0.0.1/nowsecure-network-broker-linux-arm64 \
+curl -L https://github.com/nowsecure/nowsecure-network-broker/releases/download/v0.1.0/nowsecure-network-broker-linux-arm64 \
   -o ./broker
 chmod +x ./broker
 ./broker start -c config.yaml -c secret.yaml
