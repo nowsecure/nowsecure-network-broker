@@ -1,9 +1,14 @@
 # nowsecure-network-broker
 
-The NowSecure Network Broker runs on a customer's network and
+The NowSecure Network Broker runs in a NowSecure customer's network and
 establishes a WireGuard tunnel back to a NowSecure hub. It proxies
-HTTP/HTTPS traffic for configured domains through the tunnel, allowing NowSecure platform assessments to reach internal
-applications without exposing them to the public internet.
+HTTP/HTTPS traffic for configured domains through the tunnel, allowing NowSecure
+platform assessments to reach internal applications without exposing them to
+the public internet.
+
+**Note**: The NowSecure Network Broker is currently available via an early
+access program. Please contact your NowSecure support team if you are
+interested in taking part in the early access program.
 
 ## Configuration
 
