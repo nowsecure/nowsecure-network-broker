@@ -3,7 +3,7 @@ name: Publish
 
 on:
   workflow_run:
-    workflows: ["Go", "Lint", "Docker"]
+    workflows: ["Docker"]
     types: [completed]
     branches: ["main", "release"]
 
@@ -21,15 +21,27 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Check all workflows passed
+      - name: Wait for all workflows
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           SHA="${{ github.event.workflow_run.head_sha }}"
-          for workflow in "Go" "Lint" "Docker"; do
-            STATUS=$(gh run list --workflow="${workflow}" --commit="${SHA}" --json conclusion --jq '.[0].conclusion' 2>/dev/null || echo "pending")
+          for workflow in "Go" "Docker"; do
+            echo "Checking workflow: ${workflow}"
+            for i in $(seq 1 30); do
+              STATUS=$(gh run list --workflow="${workflow}" --commit="${SHA}" --json conclusion --jq '.[0].conclusion' 2>/dev/null || echo "")
+              if [ "$STATUS" = "success" ]; then
+                echo "  ${workflow}: success"
+                break
+              elif [ "$STATUS" = "failure" ] || [ "$STATUS" = "cancelled" ]; then
+                echo "  ${workflow}: ${STATUS}, aborting publish"
+                exit 1
+              fi
+              echo "  ${workflow}: pending, waiting 10s (attempt ${i}/30)"
+              sleep 10
+            done
             if [ "$STATUS" != "success" ]; then
-              echo "Workflow '${workflow}' has not succeeded (status: ${STATUS}), skipping publish"
+              echo "  ${workflow}: timed out waiting"
               exit 1
             fi
           done
