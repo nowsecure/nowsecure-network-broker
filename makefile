@@ -4,7 +4,7 @@ EXE := ./cmd/broker
 
 default: ci
 
-ci: lint test
+ci: lint test test-integration dependencies-analyze
 
 build:
 	mkdir -p bin
