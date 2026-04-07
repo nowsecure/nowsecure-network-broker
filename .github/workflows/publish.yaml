@@ -27,7 +27,7 @@ jobs:
         run: |
           SHA="${{ github.event.workflow_run.head_sha }}"
           BRANCH="${{ github.event.workflow_run.head_branch }}"
-          for workflow in "Go" "Docker"; do
+          for workflow in "go.yaml" "docker.yaml"; do
             echo "Checking workflow: ${workflow}"
             for i in $(seq 1 30); do
               STATUS=$(gh run list \
