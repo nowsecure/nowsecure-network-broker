@@ -2,10 +2,8 @@
 name: Prerelease
 
 on:
-  workflow_run:
-    workflows: ["Publish"]
-    types: [completed]
-    branches: ["main"]
+  release:
+    types: [published]
 
 permissions:
   contents: read
@@ -19,25 +17,22 @@ env:
 
 jobs:
   build-release-candidate:
-    if: github.event.workflow_run.conclusion == 'success'
+    if: github.event.release.prerelease
     runs-on: ubuntu-latest
     steps:
-      - name: Get latest RC tag
-        id: tag
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          TAG=$(gh api "repos/${{ github.repository }}/releases?per_page=1" --jq '.[0].tag_name')
-          BASE="${TAG%-rc.*}"
-          SHA="${{ github.event.workflow_run.head_sha }}"
-          echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
-          echo "base=${BASE}" >> "$GITHUB_OUTPUT"
-          echo "build=${BASE}-${SHA:0:7}" >> "$GITHUB_OUTPUT"
-          echo "Release tag: ${TAG}"
-
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
         with:
-          ref: ${{ steps.tag.outputs.tag }}
+          ref: ${{ github.event.release.tag_name }}
+
+      - name: Extract version
+        id: version
+        run: |
+          TAG="${{ github.event.release.tag_name }}"
+          BASE="${TAG%-rc.*}"
+          SHA="$(git rev-parse --short HEAD)"
+          echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
+          echo "base=${BASE}" >> "$GITHUB_OUTPUT"
+          echo "build=${BASE}-${SHA}" >> "$GITHUB_OUTPUT"
 
       - uses: docker/setup-buildx-action@4d04d5d9486b7bd6fa91e7baf45bbb4f8b9deedd # v4
 
@@ -55,9 +50,9 @@ jobs:
           push: true
           platforms: ${{ env.PLATFORMS }}
           build-args: |
-            VERSION=${{ steps.tag.outputs.build }}
+            VERSION=${{ steps.version.outputs.build }}
           tags: |
-            ${{ env.IMAGE }}:${{ steps.tag.outputs.base }}-latest
-            ${{ env.IMAGE }}:${{ steps.tag.outputs.tag }}
+            ${{ env.IMAGE }}:${{ steps.version.outputs.base }}-latest
+            ${{ env.IMAGE }}:${{ steps.version.outputs.tag }}
           provenance: mode=max
           sbom: true
