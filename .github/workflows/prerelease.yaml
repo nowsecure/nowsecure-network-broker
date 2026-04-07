@@ -2,8 +2,10 @@
 name: Prerelease
 
 on:
-  release:
-    types: [published]
+  workflow_run:
+    workflows: ["Publish"]
+    types: [completed]
+    branches: ["main"]
 
 permissions:
   contents: read
@@ -17,32 +19,44 @@ env:
 
 jobs:
   build-release-candidate:
-    if: github.event.release.prerelease
+    if: github.event.workflow_run.conclusion == 'success'
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
-        with:
-          ref: ${{ github.event.release.tag_name }}
-
-      - name: Extract version
-        id: version
+      - name: Get latest RC tag
+        id: tag
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          TAG="${{ github.event.release.tag_name }}"
+          TAG=$(gh api "repos/${{ github.repository }}/releases?per_page=1" \
+            --jq '.[0] | select(.prerelease == true) | .tag_name')
+          if [ -z "$TAG" ]; then
+            echo "No RC release found, skipping"
+            exit 0
+          fi
           BASE="${TAG%-rc.*}"
-          SHA="$(git rev-parse --short HEAD)"
+          SHA="${{ github.event.workflow_run.head_sha }}"
           echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
           echo "base=${BASE}" >> "$GITHUB_OUTPUT"
-          echo "build=${BASE}-${SHA}" >> "$GITHUB_OUTPUT"
+          echo "build=${BASE}-${SHA:0:7}" >> "$GITHUB_OUTPUT"
+          echo "Release tag: ${TAG}"
+
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        if: steps.tag.outputs.tag
+        with:
+          ref: ${{ steps.tag.outputs.tag }}
 
       - uses: docker/setup-buildx-action@4d04d5d9486b7bd6fa91e7baf45bbb4f8b9deedd # v4
+        if: steps.tag.outputs.tag
 
       - name: Login to Docker Hub
+        if: steps.tag.outputs.tag
         uses: docker/login-action@4907a6ddec9925e35a0a9e82d7399ccc52663121 # v4
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
       - name: Build and push
+        if: steps.tag.outputs.tag
         id: build
         uses: docker/build-push-action@d08e5c354a6adb9ed34480a06d141179aa583294 # v7
         with:
@@ -50,9 +64,26 @@ jobs:
           push: true
           platforms: ${{ env.PLATFORMS }}
           build-args: |
-            VERSION=${{ steps.version.outputs.build }}
+            VERSION=${{ steps.tag.outputs.build }}
           tags: |
-            ${{ env.IMAGE }}:${{ steps.version.outputs.base }}-latest
-            ${{ env.IMAGE }}:${{ steps.version.outputs.tag }}
+            ${{ env.IMAGE }}:${{ steps.tag.outputs.base }}-latest
+            ${{ env.IMAGE }}:${{ steps.tag.outputs.tag }}
           provenance: mode=max
           sbom: true
+
+      - name: Attest provenance
+        if: steps.tag.outputs.tag
+        uses: actions/attest-build-provenance@c074443f1aee8d4aeeae555aebba3282517141b2 # v2
+        with:
+          subject-name: index.docker.io/${{ env.IMAGE }}
+          subject-digest: ${{ steps.build.outputs.digest }}
+          push-to-registry: true
+
+      - name: Attest SBOM
+        if: steps.tag.outputs.tag
+        uses: actions/attest-sbom@115c3be05ff3974bcbd0c86beeaad140953c1837 # v2
+        with:
+          subject-name: index.docker.io/${{ env.IMAGE }}
+          subject-digest: ${{ steps.build.outputs.digest }}
+          sbom-path: ${{ runner.temp }}/sbom.spdx.json
+          push-to-registry: true

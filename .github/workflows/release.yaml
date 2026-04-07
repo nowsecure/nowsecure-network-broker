@@ -2,8 +2,10 @@
 name: Release
 
 on:
-  release:
-    types: [published]
+  workflow_run:
+    workflows: ["Publish"]
+    types: [completed]
+    branches: ["release"]
 
 permissions:
   contents: write
@@ -12,13 +14,33 @@ env:
   IMAGE: nowsecure/nowsecure-network-broker
 
 jobs:
+  get-tag:
+    if: github.event.workflow_run.conclusion == 'success'
+    runs-on: ubuntu-latest
+    outputs:
+      tag: ${{ steps.tag.outputs.tag }}
+    steps:
+      - name: Get latest production release tag
+        id: tag
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          TAG=$(gh api "repos/${{ github.repository }}/releases?per_page=1" \
+            --jq '.[0] | select(.prerelease == false) | .tag_name')
+          if [ -z "$TAG" ]; then
+            echo "No production release found, skipping"
+            exit 1
+          fi
+          echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
+          echo "Release tag: ${TAG}"
+
   binaries:
-    if: "!github.event.release.prerelease"
+    needs: get-tag
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
         with:
-          ref: ${{ github.event.release.tag_name }}
+          ref: ${{ needs.get-tag.outputs.tag }}
 
       - name: Set up Go
         uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6
@@ -28,15 +50,15 @@ jobs:
       - name: Build binaries
         run: make release
         env:
-          GIT_RELEASE_TAG: ${{ github.event.release.tag_name }}
+          GIT_RELEASE_TAG: ${{ needs.get-tag.outputs.tag }}
 
       - name: Upload binaries to release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: gh release upload "${{ github.event.release.tag_name }}" release/*
+        run: gh release upload "${{ needs.get-tag.outputs.tag }}" release/*
 
   promote-docker:
-    if: "!github.event.release.prerelease"
+    needs: get-tag
     runs-on: ubuntu-latest
     steps:
       - name: Login to Docker Hub
@@ -50,5 +72,5 @@ jobs:
 
       - name: Promote image
         run: |
-          TAG="${{ github.event.release.tag_name }}"
+          TAG="${{ needs.get-tag.outputs.tag }}"
           crane cp "${{ env.IMAGE }}:${TAG}-latest" "${{ env.IMAGE }}:${TAG}"
