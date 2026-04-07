@@ -58,7 +58,7 @@ jobs:
 
   # Build and push x.x.x-latest on RC tag
   build-rc:
-    if: github.event_name == 'release' && contains(github.ref, '-rc.')
+    if: github.event_name == 'release' && contains(github.event.release.tag_name, '-rc.')
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
@@ -75,7 +75,7 @@ jobs:
         id: version
         run: |
           # e.g. v1.2.3-rc.1 -> v1.2.3
-          TAG="${GITHUB_REF#refs/tags/}"
+          TAG="${{ github.event.release.tag_name }}"
           BASE="${TAG%-rc.*}"
           SHA="$(git rev-parse --short HEAD)"
           echo "base=${BASE}" >> "$GITHUB_OUTPUT"
