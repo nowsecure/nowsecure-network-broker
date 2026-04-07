@@ -68,5 +68,5 @@ docker run --rm \
   start -c /etc/broker/config.yaml -c /etc/broker/secret.yaml
 ```
 
-See [config.example.yaml](/.ci/hack/config.example.yaml) for a full
+See [config.example.yaml](/.ci/hack/config.yaml) for a full
 annotated configuration reference.
