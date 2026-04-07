@@ -1,2 +1,66 @@
+# Hub URL is the HTTP endpoint of the hub this broker registers with.
+# The broker uses this to register itself and receive tunnel configuration.
+# Required.
+hubURL: "https://hub.example.com"
+
+# Logging configuration.
 log:
-  level: debug
+  # Log level. Uses zerolog levels:
+  # trace, debug, info, warn, error, fatal, panic
+  # Default: info
+  level: info
+
+  # Enable human-readable console output instead of JSON logs.
+  # Default: false
+  pretty: false
+
+# WireGuard tunnel configuration for the connection between broker and hub.
+wireguard:
+  # Base64-encoded X25519 private key for this broker's WireGuard interface.
+  # Generate with: wg genkey
+  # Required. Should be provided via a secrets file, not checked into source control.
+  privateKey: "oGo7PB3JCu/oBjrFGCVWS0hIijBaFUrh9LW1qdOqCW4="
+
+  # Base64-encoded X25519 public key of the hub this broker connects to.
+  # This key is provided by nowsecure.
+  # Required. Should be provided via a secrets file, not checked into source control.
+  hubPublicKey: "xTIBA5rboUvnH4htodjb6e697QjLERt1NAB4mZqp8Dg="
+
+  # Maximum Transmission Unit for the WireGuard tunnel.
+  # Default: 1420
+  mtu: 1420
+
+  # How often to check the WireGuard handshake status to detect disconnection.
+  # If no handshake has occurred within 3 minutes, the broker considers the
+  # tunnel dead and attempts to re-register.
+  # Default: 10s
+  heartbeatInterval: 10s
+
+# Proxy configuration defines which customer traffic the broker handles.
+proxy:
+  # Customer domains to route through the tunnel. The dynamic-tunneler will
+  # intercept DNS for these domains and relay traffic to the broker.
+  # Subdomains are automatically included (e.g. "acme.local" matches "app.acme.local").
+  domains:
+    - "private.stg.nowsecure.io"
+
+  # Ports to proxy traffic on.
+  ports:
+    # HTTP ports. Default: [80]
+    http:
+      - 80
+
+    # HTTPS ports. Default: [443]
+    https:
+      - 443
+
+# HTTP server configuration for health probes.
+server:
+  # Enable /healthz and /readyz endpoints. Useful in containerized environments
+  # where a liveness and readiness probe are needed.
+  # Default: false
+  probes: true
+
+  # Port for the health probe HTTP server.
+  # Default: 8888
+  port: 8888

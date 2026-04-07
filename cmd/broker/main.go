@@ -14,6 +14,8 @@ import (
 	"github.com/nowsecure/nowsecure-network-broker/pkg/logger"
 )
 
+var version = "dirty"
+
 func main() {
 	c, cfg := root()
 	c.AddCommand(
@@ -59,7 +61,7 @@ func NewStartCmd(cfg *config.Config) *cobra.Command {
 		Short: "Start the broker",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			ctx := cmd.Context()
-			zerolog.Ctx(ctx).Info().Msg("starting broker")
+			zerolog.Ctx(ctx).Info().Str("version", version).Msg("starting broker")
 			b, err := broker.New(ctx, cfg, buildBrokerOptions(cfg)...)
 			if err != nil {
 				return err

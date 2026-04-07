@@ -1,4 +1,6 @@
-BIN := ./bin/nowsecure-network-broker
+NAME := nowsecure-network-broker
+BIN := ./bin/$(NAME)
+EXE := ./cmd/broker
 
 default: ci
 
@@ -6,7 +8,7 @@ ci: lint test
 
 build:
 	mkdir -p bin
-	CGO_ENABLED=0 go build -ldflags="-s -w" -o $(BIN) ./cmd/broker
+	CGO_ENABLED=0 go build -ldflags="-s -w" -o $(BIN) $(EXE)
 
 start: build
 	$(BIN) start -c ./.ci/hack/config.yaml
@@ -27,4 +29,16 @@ dependencies-analyze:
 	which govulncheck || go install golang.org/x/vuln/cmd/govulncheck@latest
 	govulncheck ./...
 
-.PHONY: default ci build start test lint dependencies-analyze test-integration
+GIT_RELEASE_TAG ?= $(shell git describe --tags --always)
+
+release-amd64:
+	$(info INFO: Starting build $@)
+	CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -ldflags "-X main.version=$(GIT_RELEASE_TAG) -s -w" -o release/$(NAME)-linux-amd64 $(EXE)
+
+release-arm64:
+	$(info INFO: Starting build $@)
+	CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build -ldflags "-X main.version=$(GIT_RELEASE_TAG) -s -w" -o release/$(NAME)-linux-arm64 $(EXE)
+
+release: release-amd64 release-arm64
+
+.PHONY: default ci build start test lint dependencies-analyze test-integration release-amd64 release-arm64 release
