@@ -26,12 +26,12 @@ jobs:
       - name: Build binaries
         run: make release
         env:
-          GIT_RELEASE_TAG: ${{ github.ref_name }}
+          GIT_RELEASE_TAG: ${{ github.event.release.tag_name }}
 
       - name: Upload binaries to release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: gh release upload "${{ github.ref_name }}" release/*
+        run: gh release upload "${{ github.event.release.tag_name }}" release/*
 
   # Promote x.x.x-latest Docker image to x.x.x (no rebuild)
   promote-docker:
@@ -50,5 +50,4 @@ jobs:
       - name: Promote image
         run: |
           TAG="${{ github.event.release.tag_name }}"
-          BASE="${TAG%-rc.*}"
-          crane cp "${{ env.IMAGE }}:${BASE}-latest" "${{ env.IMAGE }}:${TAG}"
+          crane cp "${{ env.IMAGE }}:${TAG%-rc.*}-latest" "${{ env.IMAGE }}:${TAG}"
