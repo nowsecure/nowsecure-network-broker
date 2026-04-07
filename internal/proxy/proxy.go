@@ -207,7 +207,7 @@ func (p *Proxy) handleTLSConn(ctx context.Context, client net.Conn, port int) {
 }
 
 func resolveHost(ctx context.Context, h string, p int) (string, error) {
-	addrs, err := net.LookupHost(h)
+	addrs, err := net.LookupHost(h) //nolint:gosec // host comes from validated config, not user input
 	if err != nil {
 		return "", fmt.Errorf("failed to lookup host: %s err: %w", h, err)
 	}
@@ -217,7 +217,7 @@ func resolveHost(ctx context.Context, h string, p int) (string, error) {
 
 	for _, addr := range addrs {
 		u := net.JoinHostPort(addr, strconv.Itoa(p))
-		conn, err := net.DialTimeout("tcp", u, 2*time.Second)
+		conn, err := net.DialTimeout("tcp", u, 2*time.Second) //nolint:gosec // resolved from config-provided host
 		if err != nil {
 			zerolog.Ctx(ctx).Warn().Ctx(ctx).Err(err).Msgf("cannot dial %s", u)
 			continue
