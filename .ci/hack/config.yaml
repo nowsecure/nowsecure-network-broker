@@ -22,7 +22,7 @@ wireguard:
   privateKey: "oGo7PB3JCu/oBjrFGCVWS0hIijBaFUrh9LW1qdOqCW4="
 
   # Base64-encoded X25519 public key of the hub this broker connects to.
-  # This key is provided by nowsecure.
+  # This key will be provided by NowSecure.
   # Required. Should be provided via a secrets file, not checked into source control.
   hubPublicKey: "xTIBA5rboUvnH4htodjb6e697QjLERt1NAB4mZqp8Dg="
 
