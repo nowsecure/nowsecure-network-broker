@@ -27,7 +27,18 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          TAG=$(gh api "repos/${{ github.repository }}/releases?per_page=1" --jq '.[0].tag_name')
+          echo "=== All recent releases ==="
+          gh api "repos/${{ github.repository }}/releases?per_page=10" \
+            --jq '.[] | "\(.tag_name) prerelease=\(.prerelease) draft=\(.draft)"'
+          echo ""
+          TAG=$(gh api "repos/${{ github.repository }}/releases?per_page=10" \
+            --jq '[.[] | select(.prerelease == true)] | .[0].tag_name // empty')
+          echo "Resolved TAG: '${TAG}'"
+          if [ -z "$TAG" ]; then
+            echo "No RC release found, skipping"
+            exit 0
+          fi
+          echo "Found RC: ${TAG}"
           BASE="${TAG%-rc.*}"
           SHA="${{ github.event.workflow_run.head_sha }}"
           echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
@@ -36,18 +47,22 @@ jobs:
           echo "Release tag: ${TAG}"
 
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        if: steps.tag.outputs.tag
         with:
           ref: ${{ steps.tag.outputs.tag }}
 
       - uses: docker/setup-buildx-action@4d04d5d9486b7bd6fa91e7baf45bbb4f8b9deedd # v4
+        if: steps.tag.outputs.tag
 
       - name: Login to Docker Hub
+        if: steps.tag.outputs.tag
         uses: docker/login-action@4907a6ddec9925e35a0a9e82d7399ccc52663121 # v4
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
       - name: Build and push
+        if: steps.tag.outputs.tag
         id: build
         uses: docker/build-push-action@d08e5c354a6adb9ed34480a06d141179aa583294 # v7
         with:

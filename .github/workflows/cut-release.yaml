@@ -1,0 +1,38 @@
+---
+name: Cut Release
+
+on:
+  workflow_dispatch:
+
+permissions:
+  actions: write
+  contents: write
+
+jobs:
+  cut-release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        with:
+          fetch-depth: 0
+
+      - name: Reset release to main
+        run: |
+          git checkout release
+          git reset --hard origin/main
+          git push --force-with-lease
+
+      - name: Trigger publish and wait
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh workflow run publish.yaml --ref release
+          sleep 5
+          RUN_ID=$(gh run list --workflow=publish.yaml --branch=release --limit=1 --json databaseId --jq '.[0].databaseId')
+          echo "Waiting for Publish run ${RUN_ID}"
+          gh run watch "${RUN_ID}" --exit-status
+
+      - name: Trigger release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh workflow run release.yaml --ref release

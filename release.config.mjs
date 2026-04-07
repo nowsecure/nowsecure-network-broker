@@ -1,4 +1,5 @@
 export default {
+  repositoryUrl: "https://github.com/nowsecure/nowsecure-network-broker",
   branches: [
     { name: "release" },
     { name: "main", prerelease: "rc" },

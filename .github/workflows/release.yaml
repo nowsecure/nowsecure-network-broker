@@ -2,21 +2,48 @@
 name: Release
 
 on:
-  release:
-    types: [published]
+  workflow_run:
+    workflows: ["Publish"]
+    types: [completed]
+    branches: ["release"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
 
 env:
   IMAGE: nowsecure/nowsecure-network-broker
 
 jobs:
-  # Build and upload binaries on x.x.x tags
-  binaries:
-    if: "!contains(github.event.release.tag_name, '-rc.')"
+  get-tag:
+    if: >-
+      (github.event_name == 'workflow_dispatch') ||
+      (github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success')
     runs-on: ubuntu-latest
-    permissions:
-      contents: write
+    outputs:
+      tag: ${{ steps.tag.outputs.tag }}
+    steps:
+      - name: Get latest production release tag
+        id: tag
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          TAG=$(gh api "repos/${{ github.repository }}/releases?per_page=10" \
+            --jq '[.[] | select(.prerelease == false)] | .[0].tag_name // empty')
+          if [ -z "$TAG" ]; then
+            echo "No production release found, skipping"
+            exit 1
+          fi
+          echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
+          echo "Release tag: ${TAG}"
+
+  binaries:
+    needs: get-tag
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        with:
+          ref: ${{ needs.get-tag.outputs.tag }}
 
       - name: Set up Go
         uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6
@@ -26,16 +53,15 @@ jobs:
       - name: Build binaries
         run: make release
         env:
-          GIT_RELEASE_TAG: ${{ github.event.release.tag_name }}
+          GIT_RELEASE_TAG: ${{ needs.get-tag.outputs.tag }}
 
       - name: Upload binaries to release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: gh release upload "${{ github.event.release.tag_name }}" release/*
+        run: gh release upload "${{ needs.get-tag.outputs.tag }}" release/*
 
-  # Promote x.x.x-latest Docker image to x.x.x (no rebuild)
   promote-docker:
-    if: "!contains(github.event.release.tag_name, '-rc.')"
+    needs: get-tag
     runs-on: ubuntu-latest
     steps:
       - name: Login to Docker Hub
@@ -45,9 +71,9 @@ jobs:
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
       - name: Install crane
-        uses: imjasonh/setup-crane@31b88afe9de28ae0ffa220711af4b60be9435f6e # v0.4
+        uses: imjasonh/setup-crane@6da1ae018866400525525ce74ff892880c099987 # v0.5
 
       - name: Promote image
         run: |
-          TAG="${{ github.event.release.tag_name }}"
-          crane cp "${{ env.IMAGE }}:${TAG%-rc.*}-latest" "${{ env.IMAGE }}:${TAG}"
+          TAG="${{ needs.get-tag.outputs.tag }}"
+          crane cp "${{ env.IMAGE }}:${TAG}-latest" "${{ env.IMAGE }}:${TAG}"

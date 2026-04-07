@@ -1,5 +1,6 @@
 # Hub URL is the HTTP endpoint of the hub this broker registers with.
 # The broker uses this to register itself and receive tunnel configuration.
+# This will be provided by NowSecure.
 # Required.
 hubURL: "https://hub.example.com"
 
@@ -22,7 +23,7 @@ wireguard:
   privateKey: "oGo7PB3JCu/oBjrFGCVWS0hIijBaFUrh9LW1qdOqCW4="
 
   # Base64-encoded X25519 public key of the hub this broker connects to.
-  # This key is provided by nowsecure.
+  # This key will be provided by NowSecure.
   # Required. Should be provided via a secrets file, not checked into source control.
   hubPublicKey: "xTIBA5rboUvnH4htodjb6e697QjLERt1NAB4mZqp8Dg="
 
@@ -42,15 +43,12 @@ proxy:
   # intercept DNS for these domains and relay traffic to the broker.
   # Subdomains are automatically included (e.g. "acme.local" matches "app.acme.local").
   domains:
-    - "private.stg.nowsecure.io"
+    - "acme.local"
 
-  # Ports to proxy traffic on.
+  # Ports to proxy traffic on. Default to 80 and 443.
   ports:
-    # HTTP ports. Default: [80]
     http:
       - 80
-
-    # HTTPS ports. Default: [443]
     https:
       - 443
 
