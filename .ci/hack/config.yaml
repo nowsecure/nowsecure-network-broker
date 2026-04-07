@@ -1,5 +1,6 @@
 # Hub URL is the HTTP endpoint of the hub this broker registers with.
 # The broker uses this to register itself and receive tunnel configuration.
+# This will be provided by NowSecure.
 # Required.
 hubURL: "https://hub.example.com"
 
@@ -42,14 +43,13 @@ proxy:
   # intercept DNS for these domains and relay traffic to the broker.
   # Subdomains are automatically included (e.g. "acme.local" matches "app.acme.local").
   domains:
-    - "private.stg.nowsecure.io"
+    - "acme.local"
 
   # Ports to proxy traffic on.
   ports:
     # HTTP ports. Default: [80]
     http:
       - 80
-
     # HTTPS ports. Default: [443]
     https:
       - 443
