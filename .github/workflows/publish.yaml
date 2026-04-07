@@ -1,0 +1,30 @@
+---
+name: Publish
+
+on:
+  push:
+    branches: ["main", "release"]
+
+permissions:
+  contents: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        with:
+          fetch-depth: 0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 22.16.0
+
+      - name: Install semantic-release
+        run: npm install -g semantic-release@25.0.3 @semantic-release/git@10.0.1 @semantic-release/changelog@6.0.3 conventional-changelog-conventionalcommits@9.3.1
+
+      - name: Publish
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: npx semantic-release
