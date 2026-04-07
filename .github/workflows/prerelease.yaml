@@ -70,20 +70,3 @@ jobs:
             ${{ env.IMAGE }}:${{ steps.tag.outputs.tag }}
           provenance: mode=max
           sbom: true
-
-      - name: Attest provenance
-        if: steps.tag.outputs.tag
-        uses: actions/attest-build-provenance@c074443f1aee8d4aeeae555aebba3282517141b2 # v2
-        with:
-          subject-name: index.docker.io/${{ env.IMAGE }}
-          subject-digest: ${{ steps.build.outputs.digest }}
-          push-to-registry: true
-
-      - name: Attest SBOM
-        if: steps.tag.outputs.tag
-        uses: actions/attest-sbom@115c3be05ff3974bcbd0c86beeaad140953c1837 # v2
-        with:
-          subject-name: index.docker.io/${{ env.IMAGE }}
-          subject-digest: ${{ steps.build.outputs.digest }}
-          sbom-path: ${{ runner.temp }}/sbom.spdx.json
-          push-to-registry: true
