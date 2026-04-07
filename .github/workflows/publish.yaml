@@ -26,10 +26,15 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           SHA="${{ github.event.workflow_run.head_sha }}"
+          BRANCH="${{ github.event.workflow_run.head_branch }}"
           for workflow in "Go" "Docker"; do
             echo "Checking workflow: ${workflow}"
             for i in $(seq 1 30); do
-              STATUS=$(gh run list --workflow="${workflow}" --commit="${SHA}" --json conclusion --jq '.[0].conclusion' 2>/dev/null || echo "")
+              STATUS=$(gh run list \
+                --workflow="${workflow}" \
+                --branch="${BRANCH}" \
+                --json headSha,conclusion \
+                --jq ".[] | select(.headSha == \"${SHA}\") | .conclusion" 2>/dev/null | head -1)
               if [ "$STATUS" = "success" ]; then
                 echo "  ${workflow}: success"
                 break
