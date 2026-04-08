@@ -68,11 +68,12 @@ func (p *Proxy) startHTTPProxy(ctx context.Context, listen ListenTCPFunc, port i
 				if err != nil {
 					h = req.Host
 				}
-				target, err := resolveHost(reqCtx, h, port)
+				target, conn, err := resolveHost(reqCtx, h, port)
 				if err != nil {
 					p.log.Error().Ctx(reqCtx).Err(err).Str("host", h).Msg("failed to resolve host")
 					return
 				}
+				_ = conn.Close()
 				p.log.Info().Str("handler", "HTTP").
 					Int("port", port).
 					Ctx(reqCtx).
@@ -154,15 +155,9 @@ func (p *Proxy) handleTLSConn(ctx context.Context, client net.Conn, port int) {
 		return
 	}
 
-	backend, err := resolveHost(ctx, sni, port)
+	backend, upstream, err := resolveHost(ctx, sni, port)
 	if err != nil {
 		log.Error().Err(err).Str("target", sni).Msg("failed to resolve host")
-		return
-	}
-
-	upstream, err := net.Dial("tcp", backend)
-	if err != nil {
-		log.Error().Err(err).Str("target", sni).Str("backend", backend).Msg("dial failed")
 		return
 	}
 	defer upstream.Close()
@@ -206,25 +201,24 @@ func (p *Proxy) handleTLSConn(ctx context.Context, client net.Conn, port int) {
 	wg.Wait()
 }
 
-func resolveHost(ctx context.Context, h string, p int) (string, error) {
+func resolveHost(ctx context.Context, h string, p int) (addr string, conn net.Conn, err error) {
 	addrs, err := net.LookupHost(h) //nolint:gosec // host comes from validated config, not user input
 	if err != nil {
-		return "", fmt.Errorf("failed to lookup host: %s err: %w", h, err)
+		return "", nil, fmt.Errorf("failed to lookup host: %s err: %w", h, err)
 	}
 	if len(addrs) == 0 {
-		return "", fmt.Errorf("no addresses found for: %s", h)
+		return "", nil, fmt.Errorf("no addresses found for: %s", h)
 	}
 
-	for _, addr := range addrs {
-		u := net.JoinHostPort(addr, strconv.Itoa(p))
-		conn, err := net.DialTimeout("tcp", u, 2*time.Second) //nolint:gosec // resolved from config-provided host
+	for _, a := range addrs {
+		u := net.JoinHostPort(a, strconv.Itoa(p))
+		conn, err = net.DialTimeout("tcp", u, 2*time.Second) //nolint:gosec // resolved from config-provided host
 		if err != nil {
 			zerolog.Ctx(ctx).Warn().Ctx(ctx).Err(err).Msgf("cannot dial %s", u)
 			continue
 		}
-		_ = conn.Close()
-		return u, nil
+		return u, conn, nil
 	}
 
-	return "", fmt.Errorf("no connectable address found for: %s", h)
+	return "", nil, fmt.Errorf("no connectable address found for: %s", h)
 }

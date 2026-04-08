@@ -66,18 +66,26 @@ func TestResolveHost_Connectable(t *testing.T) {
 	port, err := strconv.Atoi(portStr)
 	require.NoError(t, err)
 
-	hostPort, err := resolveHost(t.Context(), "localhost", port)
+	hostPort, conn, err := resolveHost(t.Context(), "localhost", port)
 	require.NoError(t, err)
+	require.NotNil(t, conn, "expected open connection")
+	defer conn.Close()
 
 	host, returnedPort, err := net.SplitHostPort(hostPort)
 	require.NoError(t, err)
 	assert.Equal(t, portStr, returnedPort)
 	ip := net.ParseIP(host)
 	require.NotNil(t, ip, "expected valid IP, got %s", host)
+
+	// Verify the returned connection is usable
+	assert.NotNil(t, conn.LocalAddr(), "conn should have a local address")
+	assert.NotNil(t, conn.RemoteAddr(), "conn should have a remote address")
+	_, err = conn.Write([]byte("ping"))
+	assert.NoError(t, err, "conn should be writable")
 }
 
 func TestResolveHost_UnknownHost(t *testing.T) {
-	_, err := resolveHost(t.Context(), "this.host.does.not.exist.invalid", 80)
+	_, _, err := resolveHost(t.Context(), "this.host.does.not.exist.invalid", 80)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "failed to lookup host")
 }
@@ -350,7 +358,7 @@ func TestResolveHost_NotConnectable(t *testing.T) {
 	port, _ := strconv.Atoi(portStr)
 	ln.Close() // close immediately so nothing is listening
 
-	_, err = resolveHost(t.Context(), "localhost", port)
+	_, _, err = resolveHost(t.Context(), "localhost", port)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "no connectable address found")
 }
