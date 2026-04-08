@@ -117,6 +117,72 @@ func TestLoadConfig(t *testing.T) {
 		assert.Contains(t, err.Error(), "failed to load config file")
 	})
 
+	t.Run("multiple files merge in order", func(t *testing.T) {
+		privKey := validPrivateKey(t)
+		tmpDir := t.TempDir()
+
+		base := filepath.Join(tmpDir, "base.yaml")
+		require.NoError(t, os.WriteFile(base, []byte(
+			"wireguard:\n  privateKey: "+privKey+"\n  hubPublicKey: some-key\n  mtu: 1300\nhubURL: https://hub.example.com\n",
+		), 0o400))
+
+		override := filepath.Join(tmpDir, "override.yaml")
+		require.NoError(t, os.WriteFile(override, []byte(
+			"wireguard:\n  mtu: 1500\n",
+		), 0o400))
+
+		cfg := &Config{}
+		err := LoadConfig(t.Context(), koanf.New("."), []string{base, override}, cfg)
+		require.NoError(t, err)
+		assert.Equal(t, 1500, cfg.Wireguard.MTU)
+		assert.Equal(t, privKey, cfg.Wireguard.PrivateKey)
+	})
+
+	t.Run("invalid yaml syntax", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		cfgFile := filepath.Join(tmpDir, "bad.yaml")
+		require.NoError(t, os.WriteFile(cfgFile, []byte("{{invalid yaml"), 0o400))
+
+		cfg := &Config{}
+		err := LoadConfig(t.Context(), koanf.New("."), []string{cfgFile}, cfg)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "failed to load config file")
+	})
+
+	t.Run("later file overrides only specified fields", func(t *testing.T) {
+		privKey := validPrivateKey(t)
+		tmpDir := t.TempDir()
+
+		base := filepath.Join(tmpDir, "base.yaml")
+		require.NoError(t, os.WriteFile(base, []byte(
+			"wireguard:\n  privateKey: "+privKey+"\n  hubPublicKey: some-key\nhubURL: https://hub.example.com\nserver:\n  port: 9999\n",
+		), 0o400))
+
+		secret := filepath.Join(tmpDir, "secret.yaml")
+		require.NoError(t, os.WriteFile(secret, []byte(
+			"wireguard:\n  hubPublicKey: new-key\n",
+		), 0o400))
+
+		cfg := &Config{}
+		err := LoadConfig(t.Context(), koanf.New("."), []string{base, secret}, cfg)
+		require.NoError(t, err)
+		assert.Equal(t, "new-key", cfg.Wireguard.HubPublicKey)
+		assert.Equal(t, 9999, cfg.Server.Port)         // preserved from base
+		assert.Equal(t, privKey, cfg.Wireguard.PrivateKey) // preserved from base
+	})
+
+	t.Run("empty config files uses defaults", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		cfgFile := filepath.Join(tmpDir, "empty.yaml")
+		require.NoError(t, os.WriteFile(cfgFile, []byte(""), 0o400))
+
+		cfg := &Config{}
+		err := LoadConfig(t.Context(), koanf.New("."), []string{cfgFile}, cfg)
+		// Will fail validation (no private key) but should load defaults
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "privateKey")
+	})
+
 	t.Run("validation runs after load", func(t *testing.T) {
 		yamlContent := "wireguard:\n  privateKey: bad\nhubURL: https://hub.example.com\n"
 
