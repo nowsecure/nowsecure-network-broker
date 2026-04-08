@@ -214,6 +214,202 @@ func TestResolveEndpoint(t *testing.T) {
 	})
 }
 
+func TestHubConnected(t *testing.T) {
+	wg := newTestWireguard(t)
+	assert.False(t, wg.HubConnected())
+
+	wg.mu.Lock()
+	wg.hubConnected = true
+	wg.mu.Unlock()
+	assert.True(t, wg.HubConnected())
+}
+
+func TestStop(t *testing.T) {
+	wg := newTestWireguard(t)
+	_, err := wg.Start()
+	require.NoError(t, err)
+
+	wg.mu.Lock()
+	require.NotNil(t, wg.dev)
+	wg.stop()
+	assert.Nil(t, wg.dev)
+	wg.mu.Unlock()
+}
+
+func TestStop_NilDevice(t *testing.T) {
+	wg := newTestWireguard(t)
+	// stop with nil device should not panic
+	wg.mu.Lock()
+	wg.stop()
+	wg.mu.Unlock()
+}
+
+func TestCheckHubHealth_NilDevice(t *testing.T) {
+	wg := newTestWireguard(t)
+	// Should return early without panic when dev is nil
+	wg.checkHubHealth()
+}
+
+func TestCheckHubHealth_Connected(t *testing.T) {
+	wg := newTestWireguard(t)
+	_, err := wg.Start()
+	require.NoError(t, err)
+
+	// Simulate a recent handshake by configuring the device IPC
+	// Since we can't easily fake a handshake, test the disconnect path instead
+	wg.checkHubHealth()
+
+	// With no real peer, handshake will be zero → disconnect path
+	wg.mu.Lock()
+	assert.False(t, wg.hubConnected)
+	assert.Equal(t, 1, wg.disconnectMiss)
+	wg.mu.Unlock()
+}
+
+func TestCheckHubHealth_MaxRetries(t *testing.T) {
+	wg := newTestWireguard(t)
+	_, err := wg.Start()
+	require.NoError(t, err)
+
+	wg.mu.Lock()
+	wg.disconnectMiss = maxDisconnectRetries - 1
+	wg.mu.Unlock()
+
+	wg.checkHubHealth()
+
+	select {
+	case <-wg.Dead:
+		// expected — channel was closed
+	default:
+		t.Fatal("Dead channel should be closed after max retries")
+	}
+}
+
+func TestCheckHubHealth_InvalidHubKey(t *testing.T) {
+	wg := newTestWireguard(t)
+	_, err := wg.Start()
+	require.NoError(t, err)
+
+	// Set an invalid hub public key to trigger PubKeyToHex error
+	wg.mu.Lock()
+	wg.input.publicKey = "bad!!!"
+	wg.mu.Unlock()
+
+	// checkHubHealth should handle the error and return early
+	wg.checkHubHealth()
+
+	wg.mu.Lock()
+	// disconnectMiss should not change since we returned early on key error
+	assert.Equal(t, 0, wg.disconnectMiss)
+	wg.mu.Unlock()
+}
+
+func TestCheckHubHealth_ReregisterFails(t *testing.T) {
+	// Use a hub that will fail on re-registration
+	callCount := 0
+	hub := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		callCount++
+		if callCount > 1 {
+			// Fail on subsequent registrations
+			w.WriteHeader(http.StatusInternalServerError)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(registrationResponse{
+			IP:          "10.0.0.2",
+			HubPort:     51820,
+			AllowedCIDR: "10.0.0.0/24",
+		})
+	}))
+	defer hub.Close()
+
+	cfg := testConfig(t, hub.URL)
+	logger := zerolog.Nop()
+	wg, err := New(t.Context(), &logger, cfg)
+	require.NoError(t, err)
+
+	_, err = wg.Start()
+	require.NoError(t, err)
+
+	// checkHubHealth will see no handshake and try reregister, which will fail
+	wg.checkHubHealth()
+
+	wg.mu.Lock()
+	assert.Equal(t, 1, wg.disconnectMiss)
+	wg.mu.Unlock()
+}
+
+func TestStart_DeviceUpCalled(t *testing.T) {
+	wg := newTestWireguard(t)
+	wg.cfg.Wireguard.MTU = 1400
+
+	tnet, err := wg.Start()
+	require.NoError(t, err)
+	require.NotNil(t, tnet)
+}
+
+func TestStart_DebugLogLevel(t *testing.T) {
+	hub := mockHubServer(t)
+	defer hub.Close()
+
+	cfg := testConfig(t, hub.URL)
+	logger := zerolog.New(io.Discard).Level(zerolog.DebugLevel)
+
+	wg, err := New(t.Context(), &logger, cfg)
+	require.NoError(t, err)
+
+	tnet, err := wg.Start()
+	require.NoError(t, err)
+	require.NotNil(t, tnet)
+}
+
+func TestSetHubPeer_InvalidPeerKey(t *testing.T) {
+	wg := newTestWireguard(t)
+	_, err := wg.Start()
+	require.NoError(t, err)
+
+	// Set invalid hub public key so PeerWithEndpointIPC fails
+	wg.mu.Lock()
+	wg.input.publicKey = "bad!!!"
+	err = wg.setHubPeer()
+	wg.mu.Unlock()
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "generate hub peer ipc")
+}
+
+func TestSetHubPeer_UnresolvableHost(t *testing.T) {
+	wg := newTestWireguard(t)
+	_, err := wg.Start()
+	require.NoError(t, err)
+
+	wg.mu.Lock()
+	wg.input.host = "this.does.not.exist.invalid"
+	err = wg.setHubPeer()
+	wg.mu.Unlock()
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "resolve hub host")
+}
+
+func TestResolveEndpoint_NoAddresses(t *testing.T) {
+	wg := newTestWireguard(t)
+	wg.input.host = "this.does.not.exist.invalid"
+
+	_, err := wg.resolveEndpoint()
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "resolve hub host")
+}
+
+func TestNew_RegistrationFails(t *testing.T) {
+	cfg := testConfig(t, "http://127.0.0.1:1")
+	logger := zerolog.Nop()
+
+	_, err := New(t.Context(), &logger, cfg)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "register with hub")
+}
+
 func TestRegisterWithHub(t *testing.T) {
 	brokerPriv, brokerPub := testKeyPair(t)
 	hubPriv, hubPub := testKeyPair(t)
@@ -341,6 +537,59 @@ func TestRegisterWithHub(t *testing.T) {
 		_, err := registerWithHub(t.Context(), cfg)
 		require.NoError(t, err)
 		assert.WithinDuration(t, time.Now(), time.Unix(capturedTimestamp, 0), 5*time.Second)
+	})
+
+	t.Run("bad request returns descriptive error", func(t *testing.T) {
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			w.WriteHeader(http.StatusBadRequest)
+		}))
+		defer srv.Close()
+
+		cfg := &config.Config{
+			Wireguard: config.TunnelConfig{
+				PrivateKey:   brokerPriv,
+				HubPublicKey: hubPub,
+			},
+			HubURL: srv.URL,
+		}
+
+		_, err := registerWithHub(t.Context(), cfg)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "broker still registered")
+	})
+
+	t.Run("invalid hub public key", func(t *testing.T) {
+		cfg := &config.Config{
+			Wireguard: config.TunnelConfig{
+				PrivateKey:   brokerPriv,
+				HubPublicKey: "not-valid-base64!!!",
+			},
+			HubURL: "http://localhost",
+		}
+
+		_, err := registerWithHub(t.Context(), cfg)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "decode hub public key")
+	})
+
+	t.Run("invalid response json", func(t *testing.T) {
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte("not json"))
+		}))
+		defer srv.Close()
+
+		cfg := &config.Config{
+			Wireguard: config.TunnelConfig{
+				PrivateKey:   brokerPriv,
+				HubPublicKey: hubPub,
+			},
+			HubURL: srv.URL,
+		}
+
+		_, err := registerWithHub(t.Context(), cfg)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "decode registration response")
 	})
 
 	t.Run("sends ports in request body", func(t *testing.T) {

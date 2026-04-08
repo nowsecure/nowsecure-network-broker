@@ -112,6 +112,30 @@ func TestStart(t *testing.T) {
 	}, 2*time.Second, 50*time.Millisecond)
 }
 
+func TestStart_HTTPAndHTTPS(t *testing.T) {
+	logger := zerolog.Nop()
+	ports := &config.Ports{HTTP: []uint16{0}, HTTPS: []uint16{0}}
+	p := New(&logger, ports)
+
+	listen := func(addr *net.TCPAddr) (net.Listener, error) {
+		return net.ListenTCP("tcp", addr)
+	}
+
+	errCh := make(chan error, 1)
+	go func() { errCh <- p.Start(t.Context(), listen) }()
+
+	// Verify Start hasn't errored
+	require.Eventually(t, func() bool {
+		select {
+		case err := <-errCh:
+			t.Fatalf("Start returned early: %v", err)
+			return false
+		default:
+			return true
+		}
+	}, 2*time.Second, 50*time.Millisecond)
+}
+
 func TestStart_ListenError(t *testing.T) {
 	logger := zerolog.Nop()
 	ports := &config.Ports{HTTP: []uint16{80}}
@@ -261,6 +285,61 @@ func TestStartTLSPassthrough_ListenError(t *testing.T) {
 	err := p.startTLSPassthrough(t.Context(), listen, 443)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "failed to listen on port")
+}
+
+func TestHandleTLSConn_NoSNI(t *testing.T) {
+	logger := zerolog.Nop()
+	ports := &config.Ports{HTTPS: []uint16{0}}
+	p := New(&logger, ports)
+
+	client, server := net.Pipe()
+	defer server.Close()
+
+	// Send garbage (not a TLS ClientHello) so SNI extraction returns empty
+	go func() {
+		defer client.Close()
+		_, _ = client.Write([]byte("not a TLS handshake"))
+	}()
+
+	// handleTLSConn should return without panic (drops connection)
+	p.handleTLSConn(t.Context(), server, 443)
+}
+
+func TestHandleTLSConn_UnresolvableHost(t *testing.T) {
+	logger := zerolog.Nop()
+	ports := &config.Ports{HTTPS: []uint16{0}}
+	p := New(&logger, ports)
+
+	proxyAddr := startProxy(t,
+		func(_ *net.TCPAddr) (*net.TCPListener, error) {
+			return net.ListenTCP("tcp4", &net.TCPAddr{IP: net.IPv4(127, 0, 0, 1)})
+		},
+		func(listen ListenTCPFunc) error { return p.startTLSPassthrough(t.Context(), listen, 443) },
+	)
+
+	// Connect with SNI set to unresolvable host
+	conn, err := net.Dial("tcp4", proxyAddr)
+	require.NoError(t, err)
+	defer conn.Close()
+
+	// Send a TLS ClientHello with unresolvable SNI
+	tlsConn := tls.Client(conn, &tls.Config{
+		ServerName:         "this.host.does.not.exist.invalid",
+		InsecureSkipVerify: true, //nolint:gosec // test only
+	})
+	// Handshake will fail since proxy can't resolve the backend
+	err = tlsConn.Handshake()
+	assert.Error(t, err)
+}
+
+func TestPeekConn_Write(t *testing.T) {
+	client, _ := net.Pipe()
+	defer client.Close()
+
+	pc := &peekConn{Conn: client, r: client}
+	n, err := pc.Write([]byte("discarded"))
+	assert.NoError(t, err)
+	assert.Equal(t, 9, n) // len("discarded")
 }
 
 func TestResolveHost_NotConnectable(t *testing.T) {

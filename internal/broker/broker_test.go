@@ -195,6 +195,32 @@ func TestStart_DeadChannel(t *testing.T) {
 	}
 }
 
+func TestClose_NilHTTP(t *testing.T) {
+	b := &Broker{}
+	// Should not panic when http is nil
+	b.close()
+}
+
+func TestNew_RegistrationFailure(t *testing.T) {
+	brokerPriv, _ := testKeys(t)
+	_, hubPub := testKeys(t)
+
+	cfg := &config.Config{
+		Wireguard: config.TunnelConfig{
+			PrivateKey:   brokerPriv,
+			HubPublicKey: hubPub,
+		},
+		HubURL: "http://127.0.0.1:1", // unreachable
+		Proxy:  config.ProxyConfig{Domains: []string{"example.com"}},
+	}
+
+	logger := zerolog.Nop()
+	ctx := logger.WithContext(t.Context())
+
+	_, err := New(ctx, cfg)
+	require.Error(t, err)
+}
+
 func TestStart_WithProbes(t *testing.T) {
 	b := newTestBroker(t, WithProbes())
 	b.cfg.Server.Port = 18923
