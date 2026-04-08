@@ -167,7 +167,7 @@ func TestLoadConfig(t *testing.T) {
 		err := LoadConfig(t.Context(), koanf.New("."), []string{base, secret}, cfg)
 		require.NoError(t, err)
 		assert.Equal(t, "new-key", cfg.Wireguard.HubPublicKey)
-		assert.Equal(t, 9999, cfg.Server.Port)         // preserved from base
+		assert.Equal(t, 9999, cfg.Server.Port)             // preserved from base
 		assert.Equal(t, privKey, cfg.Wireguard.PrivateKey) // preserved from base
 	})
 

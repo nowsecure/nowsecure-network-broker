@@ -338,7 +338,7 @@ func TestPeekConn_Write(t *testing.T) {
 
 	pc := &peekConn{Conn: client, r: client}
 	n, err := pc.Write([]byte("discarded"))
-	assert.NoError(t, err)
+	require.NoError(t, err)
 	assert.Equal(t, 9, n) // len("discarded")
 }
 
