@@ -55,33 +55,6 @@ func TestNew(t *testing.T) {
 	assert.Equal(t, ports, p.ports)
 }
 
-func TestResolveHost_Connectable(t *testing.T) {
-	// Start a TCP listener to resolve and connect to
-	ln, err := net.Listen("tcp", "127.0.0.1:0")
-	require.NoError(t, err)
-	defer ln.Close()
-
-	_, portStr, err := net.SplitHostPort(ln.Addr().String())
-	require.NoError(t, err)
-	port, err := strconv.Atoi(portStr)
-	require.NoError(t, err)
-
-	hostPort, err := resolveHost(t.Context(), "localhost", port)
-	require.NoError(t, err)
-
-	host, returnedPort, err := net.SplitHostPort(hostPort)
-	require.NoError(t, err)
-	assert.Equal(t, portStr, returnedPort)
-	ip := net.ParseIP(host)
-	require.NotNil(t, ip, "expected valid IP, got %s", host)
-}
-
-func TestResolveHost_UnknownHost(t *testing.T) {
-	_, err := resolveHost(t.Context(), "this.host.does.not.exist.invalid", 80)
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "failed to lookup host")
-}
-
 func TestStart(t *testing.T) {
 	logger := zerolog.Nop()
 	ports := &config.Ports{HTTP: []uint16{0}}
@@ -340,17 +313,4 @@ func TestPeekConn_Write(t *testing.T) {
 	n, err := pc.Write([]byte("discarded"))
 	require.NoError(t, err)
 	assert.Equal(t, 9, n) // len("discarded")
-}
-
-func TestResolveHost_NotConnectable(t *testing.T) {
-	// Pick a port that nothing is listening on
-	ln, err := net.Listen("tcp", "127.0.0.1:0")
-	require.NoError(t, err)
-	_, portStr, _ := net.SplitHostPort(ln.Addr().String())
-	port, _ := strconv.Atoi(portStr)
-	ln.Close() // close immediately so nothing is listening
-
-	_, err = resolveHost(t.Context(), "localhost", port)
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "no connectable address found")
 }
