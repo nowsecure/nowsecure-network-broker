@@ -133,7 +133,7 @@ func newTestBroker(t *testing.T, opts ...Option) *Broker {
 			HeartbeatInterval: time.Hour,
 		},
 		HubURL: hub.URL,
-		Server: config.ServerConfig{Port: 0},
+		Server: config.ServerConfig{Addr: "127.0.0.1:0"},
 		Proxy: config.ProxyConfig{
 			Ports: config.Ports{HTTP: []uint16{0}, HTTPS: []uint16{0}},
 		},
@@ -223,7 +223,7 @@ func TestNew_RegistrationFailure(t *testing.T) {
 
 func TestStart_WithProbes(t *testing.T) {
 	b := newTestBroker(t, WithProbes())
-	b.cfg.Server.Port = 18923
+	b.cfg.Server.Addr = "127.0.0.1:18923"
 
 	errCh := make(chan error, 1)
 	go func() { errCh <- b.Start(t.Context()) }()
@@ -232,7 +232,7 @@ func TestStart_WithProbes(t *testing.T) {
 		if b.http == nil {
 			return false
 		}
-		resp, err := http.Get(fmt.Sprintf("http://localhost%s/healthz", b.http.Addr))
+		resp, err := http.Get(fmt.Sprintf("http://%s/healthz", b.http.Addr))
 		if err != nil {
 			return false
 		}

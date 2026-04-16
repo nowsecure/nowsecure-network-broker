@@ -27,8 +27,8 @@ type Config struct {
 type ServerConfig struct {
 	// Probes adds the health probes of /healthz and /readyz
 	// to the server useful in containerized envs
-	Probes bool `koanf:"probes"`
-	Port   int  `koanf:"port"`
+	Probes bool   `koanf:"probes"`
+	Addr   string `koanf:"addr"`
 }
 
 // TunnelConfig holds the local wireguard tunnel parameters for the broker.
@@ -69,7 +69,7 @@ var defaultConfig = Config{
 		MTU: 1420,
 	},
 	Server: ServerConfig{
-		Port: 8888,
+		Addr: "127.0.0.1:8888",
 	},
 	Proxy: ProxyConfig{
 		Ports: Ports{
@@ -95,16 +95,23 @@ func LoadConfig(ctx context.Context, k *koanf.Koanf, cfgFiles []string, cfg *Con
 	return cfg.Validate()
 }
 
-func (c *Config) Validate() error {
-	raw, err := base64.StdEncoding.DecodeString(c.Wireguard.PrivateKey)
+func validateX25519Key(field, value string) error {
+	raw, err := base64.StdEncoding.DecodeString(value)
 	if err != nil {
-		return fmt.Errorf("wireguard.privateKey must be valid base64: %w", err)
+		return fmt.Errorf("%s must be valid base64: %w", field, err)
 	}
 	if len(raw) != 32 {
-		return fmt.Errorf("wireguard.privateKey must be a 32-byte X25519 key (got %d bytes)", len(raw))
+		return fmt.Errorf("%s must be a 32-byte X25519 key (got %d bytes)", field, len(raw))
 	}
-	if c.Wireguard.HubPublicKey == "" {
-		return fmt.Errorf("wireguard.hubPublicKey is required")
+	return nil
+}
+
+func (c *Config) Validate() error {
+	if err := validateX25519Key("wireguard.privateKey", c.Wireguard.PrivateKey); err != nil {
+		return err
+	}
+	if err := validateX25519Key("wireguard.hubPublicKey", c.Wireguard.HubPublicKey); err != nil {
+		return err
 	}
 	if c.HubURL == "" {
 		return fmt.Errorf("hubURL is required")

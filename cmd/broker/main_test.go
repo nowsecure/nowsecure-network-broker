@@ -47,7 +47,7 @@ func TestRoot(t *testing.T) {
 
 func TestRoot_PersistentPreRunE_LoadsConfig(t *testing.T) {
 	privKey := validPrivateKey(t)
-	yamlContent := "wireguard:\n  privateKey: " + privKey + "\n  hubPublicKey: some-key\nhubURL: https://hub.example.com\n"
+	yamlContent := "wireguard:\n  privateKey: " + privKey + "\n  hubPublicKey: aHViLXB1YmxpYy1rZXktdGhhdC1pcy0zMi1ieXRlcyE=\nhubURL: https://hub.example.com\n"
 
 	tmpDir := t.TempDir()
 	cfgFile := filepath.Join(tmpDir, "config.yaml")
@@ -103,7 +103,7 @@ func TestNewStartCmd(t *testing.T) {
 func TestNewStartCmd_RunE_BrokerNewFails(t *testing.T) {
 	// Config with no hub URL → broker.New will fail at wireguard.New (registration)
 	privKey := validPrivateKey(t)
-	yamlContent := "wireguard:\n  privateKey: " + privKey + "\n  hubPublicKey: some-key\nhubURL: http://127.0.0.1:1\n"
+	yamlContent := "wireguard:\n  privateKey: " + privKey + "\n  hubPublicKey: aHViLXB1YmxpYy1rZXktdGhhdC1pcy0zMi1ieXRlcyE=\nhubURL: http://127.0.0.1:1\n"
 
 	tmpDir := t.TempDir()
 	cfgFile := filepath.Join(tmpDir, "config.yaml")
@@ -123,7 +123,7 @@ func TestRoot_PersistentPreRunE_MultipleConfigFiles(t *testing.T) {
 	tmpDir := t.TempDir()
 	baseFile := filepath.Join(tmpDir, "base.yaml")
 	require.NoError(t, os.WriteFile(baseFile, []byte(
-		"wireguard:\n  privateKey: "+privKey+"\n  hubPublicKey: some-key\n  mtu: 1300\nhubURL: https://hub.example.com\n",
+		"wireguard:\n  privateKey: "+privKey+"\n  hubPublicKey: aHViLXB1YmxpYy1rZXktdGhhdC1pcy0zMi1ieXRlcyE=\n  mtu: 1300\nhubURL: https://hub.example.com\n",
 	), 0o400))
 
 	overrideFile := filepath.Join(tmpDir, "override.yaml")
@@ -142,7 +142,7 @@ func TestRoot_PersistentPreRunE_MultipleConfigFiles(t *testing.T) {
 
 func TestRoot_PersistentPreRunE_SetsLogger(t *testing.T) {
 	privKey := validPrivateKey(t)
-	yamlContent := "wireguard:\n  privateKey: " + privKey + "\n  hubPublicKey: some-key\nhubURL: https://hub.example.com\nlog:\n  pretty: true\n"
+	yamlContent := "wireguard:\n  privateKey: " + privKey + "\n  hubPublicKey: aHViLXB1YmxpYy1rZXktdGhhdC1pcy0zMi1ieXRlcyE=\nhubURL: https://hub.example.com\nlog:\n  pretty: true\n"
 
 	tmpDir := t.TempDir()
 	cfgFile := filepath.Join(tmpDir, "config.yaml")
