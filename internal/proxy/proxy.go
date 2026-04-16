@@ -50,9 +50,7 @@ func (p *Proxy) Start(ctx context.Context, listen ListenTCPFunc) error {
 	return <-done
 }
 
-// startHTTPProxy starts a plain http proxy for the desired port.
-// The proxy will attempt to resolve and dial the specified host
-// before transport
+// startHTTPProxy starts a plain HTTP reverse proxy on the given port.
 func (p *Proxy) startHTTPProxy(ctx context.Context, listen ListenTCPFunc, port int) error {
 	l, err := listen(&net.TCPAddr{Port: port})
 	if err != nil {
@@ -68,15 +66,11 @@ func (p *Proxy) startHTTPProxy(ctx context.Context, listen ListenTCPFunc, port i
 				if err != nil {
 					h = req.Host
 				}
-				target, err := resolveHost(reqCtx, h, port)
-				if err != nil {
-					p.log.Error().Ctx(reqCtx).Err(err).Str("host", h).Msg("failed to resolve host")
-					return
-				}
+				target := net.JoinHostPort(h, strconv.Itoa(port))
 				p.log.Info().Str("handler", "HTTP").
 					Int("port", port).
 					Ctx(reqCtx).
-					Msgf("%s http://%s%s (%s → %s)", req.Method, h, req.URL.Path, h, target)
+					Msgf("%s http://%s%s", req.Method, h, req.URL.Path)
 				req.URL.Scheme = "http"
 				req.URL.Host = target
 			},
@@ -154,12 +148,7 @@ func (p *Proxy) handleTLSConn(ctx context.Context, client net.Conn, port int) {
 		return
 	}
 
-	backend, err := resolveHost(ctx, sni, port)
-	if err != nil {
-		log.Error().Err(err).Str("target", sni).Msg("failed to resolve host")
-		return
-	}
-
+	backend := net.JoinHostPort(sni, strconv.Itoa(port))
 	upstream, err := net.Dial("tcp", backend)
 	if err != nil {
 		log.Error().Err(err).Str("target", sni).Str("backend", backend).Msg("dial failed")
@@ -179,52 +168,25 @@ func (p *Proxy) handleTLSConn(ctx context.Context, client net.Conn, port int) {
 		return
 	}
 
-	// Bidirectional relay
-	type closeWriter interface {
-		CloseWrite() error
-	}
+	relay(client, upstream)
+}
 
+// relay copies data bidirectionally between two connections,
+// signaling half-close when each direction completes.
+func relay(client, upstream net.Conn) {
 	var wg sync.WaitGroup
 	wg.Add(2)
 
-	go func() {
+	cp := func(dst, src net.Conn) {
 		defer wg.Done()
-		_, _ = io.Copy(upstream, client)
-		if cw, ok := upstream.(closeWriter); ok {
-			_ = cw.CloseWrite()
+		_, _ = io.Copy(dst, src)
+		if tc, ok := dst.(*net.TCPConn); ok {
+			_ = tc.CloseWrite()
 		}
-	}()
+	}
 
-	go func() {
-		defer wg.Done()
-		_, _ = io.Copy(client, upstream)
-		if cw, ok := client.(closeWriter); ok {
-			_ = cw.CloseWrite()
-		}
-	}()
+	go cp(upstream, client)
+	go cp(client, upstream)
 
 	wg.Wait()
-}
-
-func resolveHost(ctx context.Context, h string, p int) (string, error) {
-	addrs, err := net.LookupHost(h) //nolint:gosec // host comes from validated config, not user input
-	if err != nil {
-		return "", fmt.Errorf("failed to lookup host: %s err: %w", h, err)
-	}
-	if len(addrs) == 0 {
-		return "", fmt.Errorf("no addresses found for: %s", h)
-	}
-
-	for _, addr := range addrs {
-		u := net.JoinHostPort(addr, strconv.Itoa(p))
-		conn, err := net.DialTimeout("tcp", u, 2*time.Second) //nolint:gosec // resolved from config-provided host
-		if err != nil {
-			zerolog.Ctx(ctx).Warn().Ctx(ctx).Err(err).Msgf("cannot dial %s", u)
-			continue
-		}
-		_ = conn.Close()
-		return u, nil
-	}
-
-	return "", fmt.Errorf("no connectable address found for: %s", h)
 }
