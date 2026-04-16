@@ -19,6 +19,7 @@ export default {
           { type: "fix", release: "patch" },
           { type: "perf", release: "patch" },
           { type: "test", release: "patch" },
+          { type: "refactor", release: "patch" },
         ],
       },
     ],
