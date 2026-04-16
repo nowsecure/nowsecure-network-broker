@@ -111,7 +111,7 @@ func (b *Broker) Start(ctx context.Context) error {
 
 func (b *Broker) serve() error {
 	b.http = &http.Server{
-		Addr:              fmt.Sprintf(":%d", b.cfg.Server.Port),
+		Addr:              b.cfg.Server.Addr,
 		Handler:           b.mux,
 		ReadTimeout:       10 * time.Second,
 		ReadHeaderTimeout: 10 * time.Second,

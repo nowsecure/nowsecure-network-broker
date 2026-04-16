@@ -268,7 +268,7 @@ func (w *Wireguard) checkHubHealth() {
 	w.hubConnected = true
 	w.log.Info().
 		Time("last_handshake", lastHandshake).
-		Msg("hub is connected")
+		Msg("is connected to hub")
 }
 
 func (w *Wireguard) reregister() error {

@@ -25,7 +25,7 @@ func validConfig(t *testing.T) *Config {
 	return &Config{
 		Wireguard: TunnelConfig{
 			PrivateKey:   validPrivateKey(t),
-			HubPublicKey: "aHViLXB1YmxpYy1rZXktdGhhdC1pcy0zMi1ieXRlcw==",
+			HubPublicKey: "aHViLXB1YmxpYy1rZXktdGhhdC1pcy0zMi1ieXRlcyE=",
 		},
 		HubURL: "https://hub.example.com",
 	}
@@ -66,7 +66,23 @@ func TestValidate(t *testing.T) {
 		cfg.Wireguard.HubPublicKey = ""
 		err := cfg.Validate()
 		require.Error(t, err)
-		assert.Contains(t, err.Error(), "hubPublicKey is required")
+		assert.Contains(t, err.Error(), "hubPublicKey must be a 32-byte")
+	})
+
+	t.Run("invalid base64 hub public key", func(t *testing.T) {
+		cfg := validConfig(t)
+		cfg.Wireguard.HubPublicKey = "not-valid!!!"
+		err := cfg.Validate()
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "hubPublicKey must be valid base64")
+	})
+
+	t.Run("wrong size hub public key", func(t *testing.T) {
+		cfg := validConfig(t)
+		cfg.Wireguard.HubPublicKey = base64.StdEncoding.EncodeToString([]byte("too-short"))
+		err := cfg.Validate()
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "hubPublicKey must be a 32-byte")
 	})
 
 	t.Run("missing hub URL", func(t *testing.T) {
@@ -81,7 +97,7 @@ func TestValidate(t *testing.T) {
 func TestLoadConfig(t *testing.T) {
 	t.Run("defaults are applied", func(t *testing.T) {
 		privKey := validPrivateKey(t)
-		yamlContent := "wireguard:\n  privateKey: " + privKey + "\n  hubPublicKey: some-key\nhubURL: https://hub.example.com\n"
+		yamlContent := "wireguard:\n  privateKey: " + privKey + "\n  hubPublicKey: aHViLXB1YmxpYy1rZXktdGhhdC1pcy0zMi1ieXRlcyE=\nhubURL: https://hub.example.com\n"
 
 		tmpDir := t.TempDir()
 		cfgFile := filepath.Join(tmpDir, "config.yaml")
@@ -97,7 +113,7 @@ func TestLoadConfig(t *testing.T) {
 
 	t.Run("file overrides defaults", func(t *testing.T) {
 		privKey := validPrivateKey(t)
-		yamlContent := "wireguard:\n  privateKey: " + privKey + "\n  hubPublicKey: some-key\n  mtu: 1300\nhubURL: https://hub.example.com\n"
+		yamlContent := "wireguard:\n  privateKey: " + privKey + "\n  hubPublicKey: aHViLXB1YmxpYy1rZXktdGhhdC1pcy0zMi1ieXRlcyE=\n  mtu: 1300\nhubURL: https://hub.example.com\n"
 
 		tmpDir := t.TempDir()
 		cfgFile := filepath.Join(tmpDir, "config.yaml")
@@ -123,7 +139,7 @@ func TestLoadConfig(t *testing.T) {
 
 		base := filepath.Join(tmpDir, "base.yaml")
 		require.NoError(t, os.WriteFile(base, []byte(
-			"wireguard:\n  privateKey: "+privKey+"\n  hubPublicKey: some-key\n  mtu: 1300\nhubURL: https://hub.example.com\n",
+			"wireguard:\n  privateKey: "+privKey+"\n  hubPublicKey: aHViLXB1YmxpYy1rZXktdGhhdC1pcy0zMi1ieXRlcyE=\n  mtu: 1300\nhubURL: https://hub.example.com\n",
 		), 0o400))
 
 		override := filepath.Join(tmpDir, "override.yaml")
@@ -155,19 +171,20 @@ func TestLoadConfig(t *testing.T) {
 
 		base := filepath.Join(tmpDir, "base.yaml")
 		require.NoError(t, os.WriteFile(base, []byte(
-			"wireguard:\n  privateKey: "+privKey+"\n  hubPublicKey: some-key\nhubURL: https://hub.example.com\nserver:\n  port: 9999\n",
+			"wireguard:\n  privateKey: "+privKey+"\n  hubPublicKey: aHViLXB1YmxpYy1rZXktdGhhdC1pcy0zMi1ieXRlcyE=\nhubURL: https://hub.example.com\nserver:\n  addr: 0.0.0.0:9999\n",
 		), 0o400))
 
+		newHubKey := "b3ZlcnJpZGUta2V5LXRoYXQtaXMtMzItYnl0ZXMhISE="
 		secret := filepath.Join(tmpDir, "secret.yaml")
 		require.NoError(t, os.WriteFile(secret, []byte(
-			"wireguard:\n  hubPublicKey: new-key\n",
+			"wireguard:\n  hubPublicKey: "+newHubKey+"\n",
 		), 0o400))
 
 		cfg := &Config{}
 		err := LoadConfig(t.Context(), koanf.New("."), []string{base, secret}, cfg)
 		require.NoError(t, err)
-		assert.Equal(t, "new-key", cfg.Wireguard.HubPublicKey)
-		assert.Equal(t, 9999, cfg.Server.Port)             // preserved from base
+		assert.Equal(t, newHubKey, cfg.Wireguard.HubPublicKey)
+		assert.Equal(t, "0.0.0.0:9999", cfg.Server.Addr)   // preserved from base
 		assert.Equal(t, privKey, cfg.Wireguard.PrivateKey) // preserved from base
 	})
 
