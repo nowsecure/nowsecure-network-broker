@@ -350,8 +350,11 @@ func registerWithHub(ctx context.Context, cfg *config.Config) (*registrationResp
 	mac.Write(body)
 	sig := base64.StdEncoding.EncodeToString(mac.Sum(nil))
 
-	registerURL := cfg.HubURL + "/broker/register"
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, registerURL, bytes.NewReader(body))
+	path, err := url.JoinPath(cfg.HubURL, "/broker/register")
+	if err != nil {
+		return nil, fmt.Errorf("failed to construct path: %w", err)
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, path, bytes.NewReader(body))
 	if err != nil {
 		return nil, fmt.Errorf("create request: %w", err)
 	}
@@ -359,9 +362,10 @@ func registerWithHub(ctx context.Context, cfg *config.Config) (*registrationResp
 	req.Header.Set("X-Timestamp", timestamp)
 	req.Header.Set("Authorization", "HMAC "+sig)
 
-	resp, err := http.DefaultClient.Do(req)
+	client := &http.Client{Timeout: 30 * time.Second}
+	resp, err := client.Do(req)
 	if err != nil {
-		return nil, fmt.Errorf("POST %s: %w", registerURL, err)
+		return nil, fmt.Errorf("POST %s: %w", path, err)
 	}
 	defer func() { _ = resp.Body.Close() }()
 
@@ -375,7 +379,7 @@ func registerWithHub(ctx context.Context, cfg *config.Config) (*registrationResp
 	}
 
 	if resp.StatusCode != http.StatusOK {
-		err := fmt.Errorf("POST %s returned status %d", registerURL, resp.StatusCode)
+		err := fmt.Errorf("POST %s returned status %d", path, resp.StatusCode)
 		zerolog.Ctx(ctx).Err(err).Ctx(ctx).Send()
 		return nil, err
 	}
