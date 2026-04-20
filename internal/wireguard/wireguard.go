@@ -292,17 +292,7 @@ func (w *Wireguard) reregister() error {
 }
 
 type registrationRequest struct {
-	Proxy proxyConfig `json:"proxy"`
-}
-
-type proxyConfig struct {
-	Domains []string   `json:"domains"`
-	Ports   proxyPorts `json:"ports"`
-}
-
-type proxyPorts struct {
-	HTTP  []uint16 `json:"http"`
-	HTTPS []uint16 `json:"https"`
+	Proxy config.ProxyConfig `json:"proxy"`
 }
 
 type registrationResponse struct {
@@ -324,13 +314,7 @@ func registerWithHub(ctx context.Context, cfg *config.Config) (*registrationResp
 	}
 
 	reqBody := registrationRequest{
-		Proxy: proxyConfig{
-			Domains: cfg.Proxy.Domains,
-			Ports: proxyPorts{
-				HTTP:  cfg.Proxy.Ports.HTTP,
-				HTTPS: cfg.Proxy.Ports.HTTPS,
-			},
-		},
+		Proxy: cfg.Proxy,
 	}
 
 	body, err := json.Marshal(reqBody)
@@ -374,13 +358,20 @@ func registerWithHub(ctx context.Context, cfg *config.Config) (*registrationResp
 		ctx = context.WithValue(ctx, logger.SpanIDKey, id)
 	}
 
-	if resp.StatusCode == http.StatusBadRequest {
-		return nil, fmt.Errorf("broker still registered, if re-registering hub could still be cleaning up old connection")
-	}
-
 	if resp.StatusCode != http.StatusOK {
-		err := fmt.Errorf("POST %s returned status %d", path, resp.StatusCode)
-		zerolog.Ctx(ctx).Err(err).Ctx(ctx).Send()
+		var errBody struct {
+			Detail string `json:"detail"`
+		}
+		err = json.NewDecoder(resp.Body).Decode(&errBody)
+		detail := errBody.Detail
+		if err != nil {
+			detail = err.Error()
+		}
+		if detail == "" {
+			detail = "no detail provided in response"
+		}
+		err := fmt.Errorf("hub registration failed: %s", detail)
+		zerolog.Ctx(ctx).Err(err).Int("status", resp.StatusCode).Ctx(ctx).Send()
 		return nil, err
 	}
 

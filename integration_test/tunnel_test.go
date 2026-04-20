@@ -170,7 +170,7 @@ func TestBrokerHTTPSPassthrough(t *testing.T) {
 		},
 		HubURL: hub.URL,
 		Proxy: config.ProxyConfig{
-			Domains: []string{"www.nowsecure.com"},
+			DNS: config.DNSConfig{Domains: []string{"www.nowsecure.com"}},
 			Ports: config.Ports{
 				HTTPS: []uint16{443},
 			},

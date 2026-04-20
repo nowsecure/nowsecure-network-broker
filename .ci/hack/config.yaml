@@ -39,11 +39,26 @@ wireguard:
 
 # Proxy configuration defines which customer traffic the broker handles.
 proxy:
-  # Customer domains to route through the tunnel. The dynamic-tunneler will
-  # intercept DNS for these domains and relay traffic to the broker.
-  # Subdomains are automatically included (e.g. "acme.local" matches "app.acme.local").
-  domains:
-    - "acme.local"
+  # DNS allowlist configuration.
+  dns:
+    # Customer domains to route through the tunnel.
+    # Subdomains are automatically included (e.g. "acme.local" matches "app.acme.local").
+    # Both subdomains and exact matches are supported. For example:
+    # domains:
+    #   - "acme.local"   # matches "app.acme.local", "api.acme.local", etc.
+    #   - "app.acme.com" # matches "app.acme.com"
+    # The hub enforces FQDN validation: each domain must contain at least one dot
+    # and use only valid DNS characters (letters, digits, hyphens).
+    # Bare hostnames (e.g. "localhost"), IP addresses, and empty strings are rejected.
+    # Required. Must not be empty.
+    domains:
+      - "acme.local"
+
+    # Hostnames to explicitly deny even if they match a domain above.
+    # Note: these are exact matches, not sub domain based.
+    # Optional.
+    # exclude:
+    #   - "internal.acme.local"
 
   # Ports to proxy traffic on. Default to 80 and 443.
   ports:
@@ -59,6 +74,6 @@ server:
   # Default: false
   probes: true
 
-  # Port for the health probe HTTP server.
-  # Default: 8888
-  port: 8888
+  # Address for the health probe HTTP server.
+  # Default: 127.0.0.1:8888
+  addr: "127.0.0.1:8888"
