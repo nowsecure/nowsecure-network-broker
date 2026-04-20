@@ -41,18 +41,24 @@ type TunnelConfig struct {
 
 // ProxyConfig describes which domains/URLs the broker should route.
 type ProxyConfig struct {
-	// Domains to be routed too. Typically a top level
-	// such as acme.local would resolve for app.acme.local
-	Domains []string `koanf:"domains"`
-	// Ports to proxy
-	Ports Ports `konaf:"ports"`
+	DNS   DNSConfig `koanf:"dns" json:"dns"`
+	Ports Ports     `koanf:"ports" json:"ports"`
+}
+
+// DNSConfig controls which hostnames the proxy is allowed to route.
+type DNSConfig struct {
+	// Domains that are allowed. Both exact matches and subdomains are permitted.
+	// e.g. "nowsecure.com" allows "nowsecure.com" and "api.nowsecure.com".
+	Domains []string `koanf:"domains" json:"domains"`
+	// Exclude denies specific hostnames that would otherwise be allowed by Domains.
+	Exclude []string `koanf:"exclude" json:"exclude,omitempty"`
 }
 
 type Ports struct {
 	// HTTP ports to proxy default is [80]
-	HTTP []uint16 `koanf:"http"`
+	HTTP []uint16 `koanf:"http" json:"http"`
 	// HTTPS ports to proxy default is [443]
-	HTTPS []uint16 `koanf:"https"`
+	HTTPS []uint16 `koanf:"https" json:"https"`
 }
 
 type LogConfig struct {

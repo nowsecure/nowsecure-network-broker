@@ -54,7 +54,7 @@ func testConfig(t *testing.T, hubURL string) *config.Config {
 			HeartbeatInterval: time.Hour,
 		},
 		HubURL: hubURL,
-		Proxy:  config.ProxyConfig{Domains: []string{"example.com"}},
+		Proxy:  config.ProxyConfig{DNS: config.DNSConfig{Domains: []string{"example.com"}}},
 	}
 }
 
@@ -441,7 +441,7 @@ func TestRegisterWithHub(t *testing.T) {
 
 			var req registrationRequest
 			require.NoError(t, json.Unmarshal(body, &req)) //nolint:testifylint // require in handler is intentional
-			assert.Equal(t, []string{"example.com"}, req.Proxy.Domains)
+			assert.Equal(t, []string{"example.com"}, req.Proxy.DNS.Domains)
 
 			w.Header().Set("Content-Type", "application/json")
 			w.Header().Set("X-Request-ID", "req-abc-123")
@@ -460,7 +460,7 @@ func TestRegisterWithHub(t *testing.T) {
 				HubPublicKey: hubPub,
 			},
 			HubURL: srv.URL,
-			Proxy:  config.ProxyConfig{Domains: []string{"example.com"}},
+			Proxy:  config.ProxyConfig{DNS: config.DNSConfig{Domains: []string{"example.com"}}},
 		}
 
 		resp, err := registerWithHub(t.Context(), cfg)
@@ -486,7 +486,7 @@ func TestRegisterWithHub(t *testing.T) {
 
 		_, err := registerWithHub(t.Context(), cfg)
 		require.Error(t, err)
-		assert.Contains(t, err.Error(), "returned status 500")
+		assert.Contains(t, err.Error(), "hub registration failed")
 	})
 
 	t.Run("hub unreachable", func(t *testing.T) {
@@ -555,7 +555,7 @@ func TestRegisterWithHub(t *testing.T) {
 
 		_, err := registerWithHub(t.Context(), cfg)
 		require.Error(t, err)
-		assert.Contains(t, err.Error(), "broker still registered")
+		assert.Contains(t, err.Error(), "hub registration failed")
 	})
 
 	t.Run("invalid hub public key", func(t *testing.T) {
@@ -609,7 +609,7 @@ func TestRegisterWithHub(t *testing.T) {
 			},
 			HubURL: srv.URL,
 			Proxy: config.ProxyConfig{
-				Domains: []string{"api.example.com"},
+				DNS: config.DNSConfig{Domains: []string{"api.example.com"}},
 				Ports: config.Ports{
 					HTTP:  []uint16{80, 8080},
 					HTTPS: []uint16{443},
@@ -619,7 +619,7 @@ func TestRegisterWithHub(t *testing.T) {
 
 		_, err := registerWithHub(t.Context(), cfg)
 		require.NoError(t, err)
-		assert.Equal(t, []string{"api.example.com"}, capturedReq.Proxy.Domains)
+		assert.Equal(t, []string{"api.example.com"}, capturedReq.Proxy.DNS.Domains)
 		assert.Equal(t, []uint16{80, 8080}, capturedReq.Proxy.Ports.HTTP)
 		assert.Equal(t, []uint16{443}, capturedReq.Proxy.Ports.HTTPS)
 	})

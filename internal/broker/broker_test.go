@@ -55,7 +55,7 @@ func TestNew(t *testing.T) {
 			HubPublicKey: hubPub,
 		},
 		HubURL: hub.URL,
-		Proxy:  config.ProxyConfig{Domains: []string{"example.com"}},
+		Proxy:  config.ProxyConfig{DNS: config.DNSConfig{Domains: []string{"example.com"}}},
 	}
 
 	logger := zerolog.Nop()
@@ -144,7 +144,7 @@ func newTestBroker(t *testing.T, opts ...Option) *Broker {
 
 	b := &Broker{
 		log:   log,
-		proxy: proxy.New(log, &cfg.Proxy.Ports),
+		proxy: proxy.New(log, &cfg.Proxy),
 		cfg:   cfg,
 		wg:    wg,
 	}
@@ -211,7 +211,7 @@ func TestNew_RegistrationFailure(t *testing.T) {
 			HubPublicKey: hubPub,
 		},
 		HubURL: "http://127.0.0.1:1", // unreachable
-		Proxy:  config.ProxyConfig{Domains: []string{"example.com"}},
+		Proxy:  config.ProxyConfig{DNS: config.DNSConfig{Domains: []string{"example.com"}}},
 	}
 
 	logger := zerolog.Nop()

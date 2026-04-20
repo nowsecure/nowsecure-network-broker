@@ -38,7 +38,7 @@ func New(ctx context.Context, cfg *config.Config, o ...Option) (*Broker, error) 
 	}
 
 	b := &Broker{
-		proxy: proxy.New(log, &cfg.Proxy.Ports),
+		proxy: proxy.New(log, &cfg.Proxy),
 		log:   log,
 		cfg:   cfg,
 		wg:    wg,
@@ -52,9 +52,7 @@ func New(ctx context.Context, cfg *config.Config, o ...Option) (*Broker, error) 
 
 func WithProbes() Option {
 	return func(b *Broker) {
-		if b.mux == nil {
-			b.mux = http.NewServeMux()
-		}
+		b.mux = http.NewServeMux()
 		b.mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) {
 			if b.wg == nil {
 				http.Error(w, "wireguard tunnel is not running", http.StatusServiceUnavailable)

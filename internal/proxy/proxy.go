@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"net/http/httputil"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -24,17 +25,21 @@ import (
 type ListenTCPFunc func(addr *net.TCPAddr) (net.Listener, error)
 
 type Proxy struct {
-	log   *zerolog.Logger
-	ports *config.Ports
+	log     *zerolog.Logger
+	ports   *config.Ports
+	domains []string
+	exclude []string
 }
 
-func New(log *zerolog.Logger, ports *config.Ports) *Proxy {
+func New(log *zerolog.Logger, proxyCfg *config.ProxyConfig) *Proxy {
 	l := log.With().
 		Str("component", "proxy").Logger()
 
 	return &Proxy{
-		log:   &l,
-		ports: ports,
+		log:     &l,
+		ports:   &proxyCfg.Ports,
+		domains: proxyCfg.DNS.Domains,
+		exclude: proxyCfg.DNS.Exclude,
 	}
 }
 
@@ -57,24 +62,37 @@ func (p *Proxy) startHTTPProxy(ctx context.Context, listen ListenTCPFunc, port i
 		return fmt.Errorf("failed to listen on port %d: %w", port, err)
 	}
 
+	rp := &httputil.ReverseProxy{
+		Director: func(req *http.Request) {
+			reqCtx := context.WithValue(ctx, logger.SpanIDKey, uuid.New().String())
+			h, _, err := net.SplitHostPort(req.Host)
+			if err != nil {
+				h = req.Host
+			}
+			target := net.JoinHostPort(h, strconv.Itoa(port))
+			p.log.Info().Str("handler", "HTTP").
+				Int("port", port).
+				Ctx(reqCtx).
+				Msgf("%s http://%s%s", req.Method, h, req.URL.Path)
+			req.URL.Scheme = "http"
+			req.URL.Host = target
+		},
+	}
+
 	server := &http.Server{
 		ReadHeaderTimeout: 10 * time.Second,
-		Handler: &httputil.ReverseProxy{
-			Director: func(req *http.Request) {
-				reqCtx := context.WithValue(ctx, logger.SpanIDKey, uuid.New().String())
-				h, _, err := net.SplitHostPort(req.Host)
-				if err != nil {
-					h = req.Host
-				}
-				target := net.JoinHostPort(h, strconv.Itoa(port))
-				p.log.Info().Str("handler", "HTTP").
-					Int("port", port).
-					Ctx(reqCtx).
-					Msgf("%s http://%s%s", req.Method, h, req.URL.Path)
-				req.URL.Scheme = "http"
-				req.URL.Host = target
-			},
-		},
+		Handler: http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+			h, _, err := net.SplitHostPort(req.Host)
+			if err != nil {
+				h = req.Host
+			}
+			if !p.hostAllowed(h) {
+				p.log.Warn().Str("host", h).Msg("host denied by allowlist")
+				http.Error(w, "forbidden", http.StatusForbidden)
+				return
+			}
+			rp.ServeHTTP(w, req)
+		}),
 	}
 	return server.Serve(l)
 }
@@ -148,6 +166,11 @@ func (p *Proxy) handleTLSConn(ctx context.Context, client net.Conn, port int) {
 		return
 	}
 
+	if !p.hostAllowed(sni) {
+		log.Warn().Str("sni", sni).Msg("host denied by allowlist")
+		return
+	}
+
 	backend := net.JoinHostPort(sni, strconv.Itoa(port))
 	upstream, err := net.Dial("tcp", backend)
 	if err != nil {
@@ -189,4 +212,27 @@ func relay(client, upstream net.Conn) {
 	go cp(client, upstream)
 
 	wg.Wait()
+}
+
+// hostAllowed returns true if the hostname matches an allowed domain
+// and is not in the exclude list.
+func (p *Proxy) hostAllowed(hostname string) bool {
+	if len(p.domains) == 0 {
+		return true
+	}
+	for _, ex := range p.exclude {
+		if strings.EqualFold(hostname, ex) {
+			return false
+		}
+	}
+	for _, d := range p.domains {
+		if strings.EqualFold(hostname, d) {
+			return true
+		}
+		// check if matches against subdomain
+		if strings.HasSuffix(strings.ToLower(hostname), "."+strings.ToLower(d)) {
+			return true
+		}
+	}
+	return false
 }
