@@ -43,7 +43,7 @@ func root() (*cobra.Command, *config.Config) {
 				return fmt.Errorf("failed to load config: %w", err)
 			}
 
-			ctx = logger.NewLogger(cfg.Log.Pretty, cfg.Log.Level).WithContext(cmd.Context())
+			ctx = logger.NewLogger(cfg.Log.Pretty, cfg.Log.Level, version).WithContext(cmd.Context())
 			cmd.SetContext(ctx)
 			return nil
 		},
@@ -61,7 +61,7 @@ func NewStartCmd(cfg *config.Config) *cobra.Command {
 		Short: "Start the broker",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			ctx := cmd.Context()
-			zerolog.Ctx(ctx).Info().Str("version", version).Msg("starting broker")
+			zerolog.Ctx(ctx).Info().Msg("starting broker")
 			b, err := broker.New(ctx, cfg, buildBrokerOptions(cfg)...)
 			if err != nil {
 				return err

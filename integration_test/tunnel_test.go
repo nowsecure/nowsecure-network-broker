@@ -157,7 +157,7 @@ func TestBrokerHTTPSPassthrough(t *testing.T) {
 	hub := mockHub(t, hubKey, brokerKey, hubWGPort)
 	defer hub.Close()
 
-	ctx := pkglogger.NewLogger(true, zerolog.InfoLevel).WithContext(t.Context())
+	ctx := pkglogger.NewLogger(true, zerolog.InfoLevel, "").WithContext(t.Context())
 
 	cfg := &config.Config{
 		Log: config.LogConfig{

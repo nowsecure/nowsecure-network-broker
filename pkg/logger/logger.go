@@ -13,10 +13,10 @@ func init() {
 	zerolog.ErrorFieldName = "err"
 	zerolog.DurationFieldUnit = time.Nanosecond
 	zerolog.ErrorStackMarshaler = pkgerrors.MarshalStack
-	zerolog.DefaultContextLogger = NewLogger(false, zerolog.InfoLevel)
+	zerolog.DefaultContextLogger = NewLogger(false, zerolog.InfoLevel, "")
 }
 
-func NewLogger(pretty bool, logLevel zerolog.Level) *zerolog.Logger {
+func NewLogger(pretty bool, logLevel zerolog.Level, version string) *zerolog.Logger {
 	var output io.Writer = os.Stderr
 	if pretty {
 		output = zerolog.ConsoleWriter{Out: os.Stderr}
@@ -25,6 +25,7 @@ func NewLogger(pretty bool, logLevel zerolog.Level) *zerolog.Logger {
 	logger := zerolog.New(output).
 		With().
 		Timestamp().
+		Str("version", version).
 		Logger().
 		Level(logLevel).
 		Hook(TracingHook{})
