@@ -173,8 +173,14 @@ func (p *Proxy) handleTLSConn(ctx context.Context, client net.Conn, port int) {
 
 	backend := net.JoinHostPort(sni, strconv.Itoa(port))
 	upstream, err := net.Dial("tcp", backend)
+	dialDuration := time.Since(time.Now()).Seconds()
 	if err != nil {
-		log.Error().Err(err).Str("target", sni).Str("backend", backend).Msg("dial failed")
+		log.Error().
+			Err(err).
+			Str("target", sni).
+			Str("backend", backend).
+			Float64("dial_duration", dialDuration).
+			Msg("dial failed")
 		return
 	}
 	defer upstream.Close()
@@ -183,7 +189,8 @@ func (p *Proxy) handleTLSConn(ctx context.Context, client net.Conn, port int) {
 		Str("remote", client.RemoteAddr().String()).
 		Str("backend", backend).
 		Str("sni", sni).
-		Msg("proxying TLS connection")
+		Float64("dial_duration", dialDuration).
+		Msg("finished dialing, proxying TLS connection")
 
 	// Replay the buffered ClientHello to the backend
 	if _, err := upstream.Write(peeked); err != nil {
