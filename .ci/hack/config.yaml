@@ -20,12 +20,12 @@ wireguard:
   # Base64-encoded X25519 private key for this broker's WireGuard interface.
   # Generate with: wg genkey
   # Required. Should be provided via a secrets file, not checked into source control.
-  privateKey: "oGo7PB3JCu/oBjrFGCVWS0hIijBaFUrh9LW1qdOqCW4="
+  privateKey: "changeme"
 
   # Base64-encoded X25519 public key of the hub this broker connects to.
   # This key will be provided by NowSecure.
   # Required. Should be provided via a secrets file, not checked into source control.
-  hubPublicKey: "xTIBA5rboUvnH4htodjb6e697QjLERt1NAB4mZqp8Dg="
+  hubPublicKey: "changeme"
 
   # Maximum Transmission Unit for the WireGuard tunnel.
   # Default: 1420
@@ -53,14 +53,13 @@ proxy:
     # Required. Must not be empty.
     domains:
       - "acme.local"
-
     # Hostnames to explicitly deny even if they match a domain above.
     # Note: these are exact matches, not sub domain based.
     # Optional.
     # exclude:
     #   - "internal.acme.local"
 
-  # Ports to proxy traffic on. Default to 80 and 443.
+    # Ports to proxy traffic on. Default to 80 and 443.
   ports:
     http:
       - 80
