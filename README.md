@@ -25,11 +25,9 @@ configuration.
 hubURL: "https://hub.example.com"
 
 proxy:
-  domains:
-    - "internal.example.com"
-
-server:
-  probes: true
+  dns:
+    domains:
+      - "internal.example.com"
 ```
 
 ### Secrets file
