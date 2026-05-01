@@ -77,6 +77,7 @@ func New(ctx context.Context, log *zerolog.Logger, cfg *config.Config) (*Wiregua
 	}
 
 	if err := w.register(ctx); err != nil {
+		w.log.Warn().Msg("initial registration failed, hub may still be cleaning up the previous broker connection")
 		return nil, err
 	}
 	return w, nil
