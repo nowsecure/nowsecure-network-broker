@@ -31,7 +31,7 @@ const (
 	defaultMTU               = 1420
 	defaultKeepalive         = 25
 	defaultHeartbeatInterval = 20 * time.Second
-	defaultHandshakeTimeout  = 3 * time.Minute
+	defaultHandshakeTimeout  = 150 * time.Second
 	maxDisconnectRetries     = 20
 )
 
