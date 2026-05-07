@@ -121,8 +121,12 @@ func (b *Broker) serve() error {
 }
 
 func (b *Broker) close() {
-	if b.http == nil {
-		return
+	if b.wg != nil {
+		if err := b.wg.Deregister(); err != nil {
+			b.log.Error().Err(err).Msg("failed to deregister from hub")
+		}
 	}
-	_ = b.http.Close()
+	if b.http != nil {
+		_ = b.http.Close()
+	}
 }

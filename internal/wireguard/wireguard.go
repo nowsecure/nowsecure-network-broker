@@ -8,6 +8,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net"
 	"net/http"
 	"net/netip"
@@ -163,6 +164,17 @@ func (w *Wireguard) Start() (*netstack.Net, error) {
 	return tnet, nil
 }
 
+// Deregister notifies the hub that the broker is shutting down.
+func (w *Wireguard) Deregister() error {
+	w.log.Info().Msg("attempting to deregister from hub")
+	resp, err := deregisterFromHub(context.Background(), w.cfg)
+	if err != nil {
+		return err
+	}
+	w.log.Info().Str("message", resp.Message).Msg("deregistered from hub")
+	return nil
+}
+
 // HubConnected returns true if the hub handshake is fresh.
 func (w *Wireguard) HubConnected() bool {
 	w.mu.Lock()
@@ -304,7 +316,7 @@ type registrationResponse struct {
 	AllowedCIDR string `json:"allowedCIDR"`
 }
 
-func registerWithHub(ctx context.Context, cfg *config.Config) (*registrationResponse, error) {
+func postHub(ctx context.Context, cfg *config.Config, path string, body []byte) ([]byte, error) {
 	privKey, err := base64.StdEncoding.DecodeString(cfg.Wireguard.PrivateKey)
 	if err != nil {
 		return nil, fmt.Errorf("decode private key: %w", err)
@@ -312,15 +324,6 @@ func registerWithHub(ctx context.Context, cfg *config.Config) (*registrationResp
 	hubPubKey, err := base64.StdEncoding.DecodeString(cfg.Wireguard.HubPublicKey)
 	if err != nil {
 		return nil, fmt.Errorf("decode hub public key: %w", err)
-	}
-
-	reqBody := registrationRequest{
-		Proxy: cfg.Proxy,
-	}
-
-	body, err := json.Marshal(reqBody)
-	if err != nil {
-		return nil, fmt.Errorf("marshal registration request: %w", err)
 	}
 
 	shared, err := curve25519.X25519(privKey, hubPubKey)
@@ -335,11 +338,11 @@ func registerWithHub(ctx context.Context, cfg *config.Config) (*registrationResp
 	mac.Write(body)
 	sig := base64.StdEncoding.EncodeToString(mac.Sum(nil))
 
-	path, err := url.JoinPath(cfg.HubURL, "/broker/register")
+	fullPath, err := url.JoinPath(cfg.HubURL, path)
 	if err != nil {
 		return nil, fmt.Errorf("failed to construct path: %w", err)
 	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, path, bytes.NewReader(body))
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, fullPath, bytes.NewReader(body))
 	if err != nil {
 		return nil, fmt.Errorf("create request: %w", err)
 	}
@@ -350,7 +353,7 @@ func registerWithHub(ctx context.Context, cfg *config.Config) (*registrationResp
 	client := &http.Client{Timeout: 30 * time.Second}
 	resp, err := client.Do(req)
 	if err != nil {
-		return nil, fmt.Errorf("POST %s: %w", path, err)
+		return nil, fmt.Errorf("POST %s: %w", fullPath, err)
 	}
 	defer func() { _ = resp.Body.Close() }()
 
@@ -371,17 +374,45 @@ func registerWithHub(ctx context.Context, cfg *config.Config) (*registrationResp
 		if detail == "" {
 			detail = "no detail provided in response"
 		}
-		err := fmt.Errorf("hub registration failed: %s", detail)
+		err := fmt.Errorf("hub %s failed: %s", path, detail)
 		zerolog.Ctx(ctx).Err(err).Int("status", resp.StatusCode).Ctx(ctx).Send()
 		return nil, err
 	}
 
-	var regResp registrationResponse
-	if err := json.NewDecoder(resp.Body).Decode(&regResp); err != nil {
-		err := fmt.Errorf("decode registration response: %w", err)
-		zerolog.Ctx(ctx).Err(err).Ctx(ctx).Send()
+	return io.ReadAll(resp.Body)
+}
+
+func registerWithHub(ctx context.Context, cfg *config.Config) (*registrationResponse, error) {
+	body, err := json.Marshal(registrationRequest{Proxy: cfg.Proxy})
+	if err != nil {
+		return nil, fmt.Errorf("marshal registration request: %w", err)
+	}
+
+	respBody, err := postHub(ctx, cfg, "/broker/register", body)
+	if err != nil {
 		return nil, err
 	}
 
+	var regResp registrationResponse
+	if err := json.Unmarshal(respBody, &regResp); err != nil {
+		return nil, fmt.Errorf("decode registration response: %w", err)
+	}
 	return &regResp, nil
+}
+
+type deregistrationResponse struct {
+	Message string `json:"message"`
+}
+
+func deregisterFromHub(ctx context.Context, cfg *config.Config) (*deregistrationResponse, error) {
+	respBody, err := postHub(ctx, cfg, "/broker/deregister", []byte("{}"))
+	if err != nil {
+		return nil, err
+	}
+
+	var resp deregistrationResponse
+	if err := json.Unmarshal(respBody, &resp); err != nil {
+		return nil, fmt.Errorf("decode deregistration response: %w", err)
+	}
+	return &resp, nil
 }

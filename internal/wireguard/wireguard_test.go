@@ -486,7 +486,7 @@ func TestRegisterWithHub(t *testing.T) {
 
 		_, err := registerWithHub(t.Context(), cfg)
 		require.Error(t, err)
-		assert.Contains(t, err.Error(), "hub registration failed")
+		assert.Contains(t, err.Error(), "hub /broker/register failed")
 	})
 
 	t.Run("hub unreachable", func(t *testing.T) {
@@ -555,7 +555,7 @@ func TestRegisterWithHub(t *testing.T) {
 
 		_, err := registerWithHub(t.Context(), cfg)
 		require.Error(t, err)
-		assert.Contains(t, err.Error(), "hub registration failed")
+		assert.Contains(t, err.Error(), "hub /broker/register failed")
 	})
 
 	t.Run("invalid hub public key", func(t *testing.T) {
@@ -622,5 +622,89 @@ func TestRegisterWithHub(t *testing.T) {
 		assert.Equal(t, []string{"api.example.com"}, capturedReq.Proxy.DNS.Domains)
 		assert.Equal(t, []uint16{80, 8080}, capturedReq.Proxy.Ports.HTTP)
 		assert.Equal(t, []uint16{443}, capturedReq.Proxy.Ports.HTTPS)
+	})
+}
+
+func TestDeregisterFromHub(t *testing.T) {
+	brokerPriv, _ := testKeyPair(t)
+	_, hubPub := testKeyPair(t)
+
+	t.Run("success", func(t *testing.T) {
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			assert.Equal(t, "/broker/deregister", r.URL.Path)
+			assert.Equal(t, http.MethodPost, r.Method)
+			assert.Contains(t, r.Header.Get("Authorization"), "HMAC ")
+			assert.NotEmpty(t, r.Header.Get("X-Timestamp"))
+
+			w.Header().Set("Content-Type", "application/json")
+			_ = json.NewEncoder(w).Encode(deregistrationResponse{
+				Message: "broker successfully deregistered",
+			})
+		}))
+		defer srv.Close()
+
+		cfg := &config.Config{
+			Wireguard: config.TunnelConfig{
+				PrivateKey:   brokerPriv,
+				HubPublicKey: hubPub,
+			},
+			HubURL: srv.URL,
+		}
+
+		resp, err := deregisterFromHub(t.Context(), cfg)
+		require.NoError(t, err)
+		assert.Equal(t, "broker successfully deregistered", resp.Message)
+	})
+
+	t.Run("hub returns error status", func(t *testing.T) {
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			w.WriteHeader(http.StatusInternalServerError)
+		}))
+		defer srv.Close()
+
+		cfg := &config.Config{
+			Wireguard: config.TunnelConfig{
+				PrivateKey:   brokerPriv,
+				HubPublicKey: hubPub,
+			},
+			HubURL: srv.URL,
+		}
+
+		_, err := deregisterFromHub(t.Context(), cfg)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "hub /broker/deregister failed")
+	})
+
+	t.Run("hub unreachable", func(t *testing.T) {
+		cfg := &config.Config{
+			Wireguard: config.TunnelConfig{
+				PrivateKey:   brokerPriv,
+				HubPublicKey: hubPub,
+			},
+			HubURL: "http://127.0.0.1:1",
+		}
+
+		_, err := deregisterFromHub(t.Context(), cfg)
+		require.Error(t, err)
+	})
+
+	t.Run("invalid response json", func(t *testing.T) {
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte("not json"))
+		}))
+		defer srv.Close()
+
+		cfg := &config.Config{
+			Wireguard: config.TunnelConfig{
+				PrivateKey:   brokerPriv,
+				HubPublicKey: hubPub,
+			},
+			HubURL: srv.URL,
+		}
+
+		_, err := deregisterFromHub(t.Context(), cfg)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "decode deregistration response")
 	})
 }
