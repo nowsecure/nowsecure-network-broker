@@ -29,16 +29,34 @@ func testKeys(t *testing.T) (privB64, pubB64 string) {
 		base64.StdEncoding.EncodeToString(key.PublicKey().Bytes())
 }
 
-// mockHubServer returns an httptest.Server that responds to /broker/register.
+// mockHubServer returns an httptest.Server that responds to /broker/register and /broker/deregister.
 func mockHubServer(t *testing.T) *httptest.Server {
 	t.Helper()
+	return mockHubServerWithHooks(t, nil)
+}
+
+func mockHubServerWithHooks(t *testing.T, hooks map[string]http.HandlerFunc) *httptest.Server {
+	t.Helper()
 	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if h, ok := hooks[r.URL.Path]; ok {
+			h(w, r)
+			return
+		}
 		w.Header().Set("Content-Type", "application/json")
-		_ = json.NewEncoder(w).Encode(map[string]any{
-			"ip":          "10.0.0.2",
-			"hubPort":     51820,
-			"allowedCIDR": "10.0.0.0/24",
-		})
+		switch r.URL.Path {
+		case "/broker/register":
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"ip":          "10.0.0.2",
+				"hubPort":     51820,
+				"allowedCIDR": "10.0.0.0/24",
+			})
+		case "/broker/deregister":
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"message": "broker successfully deregistered",
+			})
+		default:
+			http.NotFound(w, r)
+		}
 	}))
 }
 
@@ -195,9 +213,57 @@ func TestStart_DeadChannel(t *testing.T) {
 	}
 }
 
+func TestClose_DeregistersFromHub(t *testing.T) {
+	var deregisterCalled bool
+	hub := mockHubServerWithHooks(t, map[string]http.HandlerFunc{
+		"/broker/deregister": func(w http.ResponseWriter, r *http.Request) {
+			deregisterCalled = true
+			w.Header().Set("Content-Type", "application/json")
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"message": "broker successfully deregistered",
+			})
+		},
+	})
+	t.Cleanup(hub.Close)
+
+	brokerPriv, _ := testKeys(t)
+	_, hubPub := testKeys(t)
+
+	logger := zerolog.Nop()
+	log := &logger
+
+	cfg := &config.Config{
+		Wireguard: config.TunnelConfig{
+			PrivateKey:        brokerPriv,
+			HubPublicKey:      hubPub,
+			HeartbeatInterval: time.Hour,
+		},
+		HubURL: hub.URL,
+		Server: config.ServerConfig{Addr: "127.0.0.1:0"},
+		Proxy: config.ProxyConfig{
+			Ports: config.Ports{HTTP: []uint16{0}, HTTPS: []uint16{0}},
+		},
+	}
+
+	wg, err := wireguard.New(t.Context(), log, cfg)
+	require.NoError(t, err)
+
+	b := &Broker{
+		log:   log,
+		proxy: proxy.New(log, &cfg.Proxy),
+		cfg:   cfg,
+		wg:    wg,
+	}
+
+	b.close()
+
+	assert.True(t, deregisterCalled, "deregister endpoint was not called")
+}
+
 func TestClose_NilHTTP(t *testing.T) {
-	b := &Broker{}
-	// Should not panic when http is nil
+	l := zerolog.Nop()
+	b := &Broker{log: &l, cfg: &config.Config{}}
+	// Should not panic when http and wg are nil
 	b.close()
 }
 
