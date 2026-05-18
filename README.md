@@ -94,7 +94,7 @@ Keep sensitive values in a separate file with restricted permissions.
 The second file overrides only the fields it specifies, so
 `wireguard.privateKey` is merged into the base config.
 
-See [Prerequisites](#prerequisites) above for how to generate your key pair
+See [Getting Started](#getting-started) above for how to generate your key pair
 and obtain the values below from NowSecure.
 
 #### secret.yaml
