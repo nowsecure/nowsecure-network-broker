@@ -184,18 +184,33 @@ func (p *Proxy) handleTLSConn(ctx context.Context, client net.Conn, port int) {
 	}
 
 	backend := net.JoinHostPort(ips[0], strconv.Itoa(port))
+	dialer := &net.Dialer{Timeout: 10 * time.Second}
+
 	dialStart := time.Now()
-	upstream, err := net.Dial("tcp", backend)
+	upstream, err := dialer.DialContext(ctx, "tcp", backend)
 	dialMs := float64(time.Since(dialStart).Milliseconds())
 	if err != nil {
-		log.Error().
+		log.Warn().
 			Err(err).
 			Str("target", sni).
 			Str("backend", backend).
 			Float64("resolve_ms", resolveMs).
 			Float64("dial_ms", dialMs).
-			Msg("dial failed")
-		return
+			Msg("dial failed, retrying")
+
+		dialStart = time.Now()
+		upstream, err = dialer.DialContext(ctx, "tcp", backend)
+		dialMs = float64(time.Since(dialStart).Milliseconds())
+		if err != nil {
+			log.Error().
+				Err(err).
+				Str("target", sni).
+				Str("backend", backend).
+				Float64("resolve_ms", resolveMs).
+				Float64("dial_ms", dialMs).
+				Msg("dial failed after retry")
+			return
+		}
 	}
 	defer upstream.Close()
 
