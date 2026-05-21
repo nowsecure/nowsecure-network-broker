@@ -171,6 +171,21 @@ func (p *Proxy) handleTLSConn(ctx context.Context, client net.Conn, port int) {
 		return
 	}
 
+	upstream, err := p.dialBackend(ctx, log, client, sni, port)
+	if err != nil {
+		return
+	}
+	defer upstream.Close()
+
+	if _, err := upstream.Write(peeked); err != nil {
+		log.Error().Err(err).Msg("replay ClientHello failed")
+		return
+	}
+
+	relay(client, upstream)
+}
+
+func (p *Proxy) dialBackend(ctx context.Context, log zerolog.Logger, client net.Conn, sni string, port int) (net.Conn, error) {
 	resolveStart := time.Now()
 	ips, err := net.DefaultResolver.LookupHost(ctx, sni)
 	resolveMs := float64(time.Since(resolveStart).Milliseconds())
@@ -180,55 +195,38 @@ func (p *Proxy) handleTLSConn(ctx context.Context, client net.Conn, port int) {
 			Str("target", sni).
 			Float64("resolve_ms", resolveMs).
 			Msg("DNS resolution failed")
-		return
+		return nil, fmt.Errorf("dns resolution failed: %w", err)
 	}
 
 	backend := net.JoinHostPort(ips[0], strconv.Itoa(port))
-	dialer := &net.Dialer{Timeout: 10 * time.Second}
+	dialLog := log.With().
+		Str("sni", sni).
+		Str("backend", backend).
+		Str("remote", client.RemoteAddr().String()).
+		Logger()
 
-	dialStart := time.Now()
-	upstream, err := dialer.DialContext(ctx, "tcp", backend)
-	dialMs := float64(time.Since(dialStart).Milliseconds())
-	if err != nil {
-		log.Warn().
-			Err(err).
-			Str("target", sni).
-			Str("backend", backend).
+	dialer := &net.Dialer{Timeout: 10 * time.Second}
+	const maxAttempts = 3
+	for attempt := range maxAttempts {
+		dialStart := time.Now()
+		conn, err := dialer.DialContext(ctx, "tcp", backend)
+		dialMs := float64(time.Since(dialStart).Milliseconds())
+		if err != nil {
+			dialLog.Warn().
+				Err(err).
+				Float64("dial_ms", dialMs).
+				Int("attempt", attempt+1).
+				Msg("dial failed, retrying")
+			continue
+		}
+		dialLog.Info().
 			Float64("resolve_ms", resolveMs).
 			Float64("dial_ms", dialMs).
-			Msg("dial failed, retrying")
-
-		dialStart = time.Now()
-		upstream, err = dialer.DialContext(ctx, "tcp", backend)
-		dialMs = float64(time.Since(dialStart).Milliseconds())
-		if err != nil {
-			log.Error().
-				Err(err).
-				Str("target", sni).
-				Str("backend", backend).
-				Float64("resolve_ms", resolveMs).
-				Float64("dial_ms", dialMs).
-				Msg("dial failed after retry")
-			return
-		}
-	}
-	defer upstream.Close()
-
-	log.Info().
-		Str("remote", client.RemoteAddr().String()).
-		Str("backend", backend).
-		Str("sni", sni).
-		Float64("resolve_ms", resolveMs).
-		Float64("dial_ms", dialMs).
-		Msg("finished dialing, proxying TLS connection")
-
-	// Replay the buffered ClientHello to the backend
-	if _, err := upstream.Write(peeked); err != nil {
-		log.Error().Err(err).Str("backend", backend).Msg("replay ClientHello failed")
-		return
+			Msg("finished dialing, proxying TLS connection")
+		return conn, nil
 	}
 
-	relay(client, upstream)
+	return nil, fmt.Errorf("dial %s failed after %d attempts", backend, maxAttempts)
 }
 
 // relay copies data bidirectionally between two connections,
