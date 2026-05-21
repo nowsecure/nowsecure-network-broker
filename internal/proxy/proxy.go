@@ -198,35 +198,36 @@ func (p *Proxy) dialBackend(ctx context.Context, log zerolog.Logger, client net.
 		return nil, fmt.Errorf("dns resolution failed: %w", err)
 	}
 
-	backend := net.JoinHostPort(ips[0], strconv.Itoa(port))
 	dialLog := log.With().
 		Str("sni", sni).
-		Str("backend", backend).
 		Str("remote", client.RemoteAddr().String()).
 		Logger()
 
 	dialer := &net.Dialer{Timeout: 10 * time.Second}
 	const maxAttempts = 3
 	for attempt := range maxAttempts {
+		backend := net.JoinHostPort(ips[attempt%len(ips)], strconv.Itoa(port))
 		dialStart := time.Now()
 		conn, err := dialer.DialContext(ctx, "tcp", backend)
 		dialMs := float64(time.Since(dialStart).Milliseconds())
 		if err != nil {
 			dialLog.Warn().
 				Err(err).
+				Str("backend", backend).
 				Float64("dial_ms", dialMs).
 				Int("attempt", attempt+1).
 				Msg("dial failed, retrying")
 			continue
 		}
 		dialLog.Info().
+			Str("backend", backend).
 			Float64("resolve_ms", resolveMs).
 			Float64("dial_ms", dialMs).
 			Msg("finished dialing, proxying TLS connection")
 		return conn, nil
 	}
 
-	return nil, fmt.Errorf("dial %s failed after %d attempts", backend, maxAttempts)
+	return nil, fmt.Errorf("dial %s failed after %d attempts", sni, maxAttempts)
 }
 
 // relay copies data bidirectionally between two connections,
