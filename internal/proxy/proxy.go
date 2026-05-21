@@ -171,16 +171,29 @@ func (p *Proxy) handleTLSConn(ctx context.Context, client net.Conn, port int) {
 		return
 	}
 
-	backend := net.JoinHostPort(sni, strconv.Itoa(port))
+	resolveStart := time.Now()
+	ips, err := net.DefaultResolver.LookupHost(ctx, sni)
+	resolveMs := float64(time.Since(resolveStart).Milliseconds())
+	if err != nil || len(ips) == 0 {
+		log.Error().
+			Err(err).
+			Str("target", sni).
+			Float64("resolve_ms", resolveMs).
+			Msg("DNS resolution failed")
+		return
+	}
+
+	backend := net.JoinHostPort(ips[0], strconv.Itoa(port))
 	dialStart := time.Now()
 	upstream, err := net.Dial("tcp", backend)
-	dialDuration := float64(time.Since(dialStart).Milliseconds())
+	dialMs := float64(time.Since(dialStart).Milliseconds())
 	if err != nil {
 		log.Error().
 			Err(err).
 			Str("target", sni).
 			Str("backend", backend).
-			Float64("dial_ms", dialDuration).
+			Float64("resolve_ms", resolveMs).
+			Float64("dial_ms", dialMs).
 			Msg("dial failed")
 		return
 	}
@@ -190,7 +203,8 @@ func (p *Proxy) handleTLSConn(ctx context.Context, client net.Conn, port int) {
 		Str("remote", client.RemoteAddr().String()).
 		Str("backend", backend).
 		Str("sni", sni).
-		Float64("dial_ms", dialDuration).
+		Float64("resolve_ms", resolveMs).
+		Float64("dial_ms", dialMs).
 		Msg("finished dialing, proxying TLS connection")
 
 	// Replay the buffered ClientHello to the backend
