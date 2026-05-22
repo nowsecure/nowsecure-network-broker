@@ -203,7 +203,7 @@ func (p *Proxy) dialBackend(ctx context.Context, log zerolog.Logger, client net.
 		Str("remote", client.RemoteAddr().String()).
 		Logger()
 
-	dialer := &net.Dialer{Timeout: 10 * time.Second}
+	dialer := &net.Dialer{Timeout: 4 * time.Second}
 	const maxAttempts = 3
 	for attempt := range maxAttempts {
 		backend := net.JoinHostPort(ips[attempt%len(ips)], strconv.Itoa(port))
