@@ -122,8 +122,8 @@ chmod +x ./broker
 
 ```sh
 docker run --rm \
-  -v ./path/to/config.yaml:/etc/broker/config.yaml:ro \
-  -v ./path/to/secret.yaml:/etc/broker/secret.yaml:ro \
+  -v /path/to/config.yaml:/etc/broker/config.yaml:ro \
+  -v /path/to/secret.yaml:/etc/broker/secret.yaml:ro \
   nowsecure/nowsecure-network-broker:stable \
   start -c /etc/broker/config.yaml -c /etc/broker/secret.yaml
 ```
