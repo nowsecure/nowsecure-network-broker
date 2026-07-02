@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/base64"
 	"fmt"
+	"net/url"
 	"time"
 
 	"github.com/knadh/koanf/parsers/yaml"
@@ -122,6 +123,19 @@ func (c *Config) Validate() error {
 	}
 	if c.HubURL == "" {
 		return fmt.Errorf("hubURL is required")
+	}
+	u, err := url.Parse(c.HubURL)
+	if err != nil {
+		return fmt.Errorf("hubURL is not a valid URL: %w", err)
+	}
+	if u.Scheme != "http" && u.Scheme != "https" {
+		return fmt.Errorf("hubURL must use http or https scheme, got %q", u.Scheme)
+	}
+	if u.Host == "" {
+		return fmt.Errorf("hubURL is missing a host")
+	}
+	if len(c.Proxy.DNS.Domains) == 0 {
+		return fmt.Errorf("proxy.dns.domains is required and must not be empty")
 	}
 	return nil
 }

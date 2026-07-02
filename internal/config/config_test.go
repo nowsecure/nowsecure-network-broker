@@ -28,6 +28,9 @@ func validConfig(t *testing.T) *Config {
 			HubPublicKey: "aHViLXB1YmxpYy1rZXktdGhhdC1pcy0zMi1ieXRlcyE=",
 		},
 		HubURL: "https://hub.example.com",
+		Proxy: ProxyConfig{
+			DNS: DNSConfig{Domains: []string{"example.com"}},
+		},
 	}
 }
 
@@ -97,7 +100,7 @@ func TestValidate(t *testing.T) {
 func TestLoadConfig(t *testing.T) {
 	t.Run("defaults are applied", func(t *testing.T) {
 		privKey := validPrivateKey(t)
-		yamlContent := "wireguard:\n  privateKey: " + privKey + "\n  hubPublicKey: aHViLXB1YmxpYy1rZXktdGhhdC1pcy0zMi1ieXRlcyE=\nhubURL: https://hub.example.com\n"
+		yamlContent := "wireguard:\n  privateKey: " + privKey + "\n  hubPublicKey: aHViLXB1YmxpYy1rZXktdGhhdC1pcy0zMi1ieXRlcyE=\nhubURL: https://hub.example.com\nproxy:\n  dns:\n    domains:\n      - example.com\n"
 
 		tmpDir := t.TempDir()
 		cfgFile := filepath.Join(tmpDir, "config.yaml")
@@ -113,7 +116,7 @@ func TestLoadConfig(t *testing.T) {
 
 	t.Run("file overrides defaults", func(t *testing.T) {
 		privKey := validPrivateKey(t)
-		yamlContent := "wireguard:\n  privateKey: " + privKey + "\n  hubPublicKey: aHViLXB1YmxpYy1rZXktdGhhdC1pcy0zMi1ieXRlcyE=\n  mtu: 1300\nhubURL: https://hub.example.com\n"
+		yamlContent := "wireguard:\n  privateKey: " + privKey + "\n  hubPublicKey: aHViLXB1YmxpYy1rZXktdGhhdC1pcy0zMi1ieXRlcyE=\n  mtu: 1300\nhubURL: https://hub.example.com\nproxy:\n  dns:\n    domains:\n      - example.com\n"
 
 		tmpDir := t.TempDir()
 		cfgFile := filepath.Join(tmpDir, "config.yaml")
@@ -139,7 +142,7 @@ func TestLoadConfig(t *testing.T) {
 
 		base := filepath.Join(tmpDir, "base.yaml")
 		require.NoError(t, os.WriteFile(base, []byte(
-			"wireguard:\n  privateKey: "+privKey+"\n  hubPublicKey: aHViLXB1YmxpYy1rZXktdGhhdC1pcy0zMi1ieXRlcyE=\n  mtu: 1300\nhubURL: https://hub.example.com\n",
+			"wireguard:\n  privateKey: "+privKey+"\n  hubPublicKey: aHViLXB1YmxpYy1rZXktdGhhdC1pcy0zMi1ieXRlcyE=\n  mtu: 1300\nhubURL: https://hub.example.com\nproxy:\n  dns:\n    domains:\n      - example.com\n",
 		), 0o400))
 
 		override := filepath.Join(tmpDir, "override.yaml")
@@ -171,7 +174,7 @@ func TestLoadConfig(t *testing.T) {
 
 		base := filepath.Join(tmpDir, "base.yaml")
 		require.NoError(t, os.WriteFile(base, []byte(
-			"wireguard:\n  privateKey: "+privKey+"\n  hubPublicKey: aHViLXB1YmxpYy1rZXktdGhhdC1pcy0zMi1ieXRlcyE=\nhubURL: https://hub.example.com\nserver:\n  addr: 0.0.0.0:9999\n",
+			"wireguard:\n  privateKey: "+privKey+"\n  hubPublicKey: aHViLXB1YmxpYy1rZXktdGhhdC1pcy0zMi1ieXRlcyE=\nhubURL: https://hub.example.com\nserver:\n  addr: 0.0.0.0:9999\nproxy:\n  dns:\n    domains:\n      - example.com\n",
 		), 0o400))
 
 		newHubKey := "b3ZlcnJpZGUta2V5LXRoYXQtaXMtMzItYnl0ZXMhISE="
@@ -201,7 +204,7 @@ func TestLoadConfig(t *testing.T) {
 	})
 
 	t.Run("validation runs after load", func(t *testing.T) {
-		yamlContent := "wireguard:\n  privateKey: bad\nhubURL: https://hub.example.com\n"
+		yamlContent := "wireguard:\n  privateKey: bad\nhubURL: https://hub.example.com\nproxy:\n  dns:\n    domains:\n      - example.com\n"
 
 		tmpDir := t.TempDir()
 		cfgFile := filepath.Join(tmpDir, "config.yaml")
