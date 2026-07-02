@@ -42,6 +42,7 @@ func root() (*cobra.Command, *config.Config) {
 			if err := config.LoadConfig(ctx, koanf.New("."), configFiles, cfg); err != nil {
 				return fmt.Errorf("failed to load config: %w", err)
 			}
+			cfg.Version = version
 
 			ctx = logger.NewLogger(cfg.Log.Pretty, cfg.Log.Level, version).WithContext(cmd.Context())
 			cmd.SetContext(ctx)

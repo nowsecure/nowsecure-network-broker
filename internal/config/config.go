@@ -19,6 +19,7 @@ type Config struct {
 	HubURL    string       `koanf:"hubURL"`
 	Proxy     ProxyConfig  `koanf:"proxy"`
 	Server    ServerConfig `koanf:"server"`
+	Version   string       `koanf:"-"`
 }
 
 // ServerConfig holds configuration on whether to start an

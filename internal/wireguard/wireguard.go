@@ -305,7 +305,8 @@ func (w *Wireguard) reregister() error {
 }
 
 type registrationRequest struct {
-	Proxy config.ProxyConfig `json:"proxy"`
+	Proxy   config.ProxyConfig `json:"proxy"`
+	Version string             `json:"version"`
 }
 
 type registrationResponse struct {
@@ -383,7 +384,7 @@ func postHub(ctx context.Context, cfg *config.Config, path string, body []byte) 
 }
 
 func registerWithHub(ctx context.Context, cfg *config.Config) (*registrationResponse, error) {
-	body, err := json.Marshal(registrationRequest{Proxy: cfg.Proxy})
+	body, err := json.Marshal(registrationRequest{Proxy: cfg.Proxy, Version: cfg.Version})
 	if err != nil {
 		return nil, fmt.Errorf("marshal registration request: %w", err)
 	}
