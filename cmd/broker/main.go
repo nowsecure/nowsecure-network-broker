@@ -24,7 +24,7 @@ func main() {
 
 	ctx := context.Background()
 	if err := c.ExecuteContext(ctx); err != nil {
-		log.Fatal().Err(err).Send()
+		log.Fatal().Err(err).Str("version", version).Send()
 	}
 }
 
@@ -34,6 +34,7 @@ func root() (*cobra.Command, *config.Config) {
 	c := &cobra.Command{
 		Use:           "broker",
 		Short:         "broker",
+		Version:       version,
 		SilenceUsage:  false,
 		SilenceErrors: false,
 		PersistentPreRunE: func(cmd *cobra.Command, args []string) error {

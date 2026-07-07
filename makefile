@@ -6,9 +6,11 @@ default: ci
 
 ci: lint test test-integration dependencies-analyze
 
+GIT_SHA := $(shell git rev-parse --short HEAD)
+
 build:
 	mkdir -p bin
-	CGO_ENABLED=0 go build -ldflags="-s -w" -o $(BIN) $(EXE)
+	CGO_ENABLED=0 go build -ldflags="-s -w -X main.version=$(GIT_SHA)" -o $(BIN) $(EXE)
 
 start: build
 	$(BIN) start -c ./.ci/hack/config.yaml
